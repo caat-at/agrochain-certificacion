@@ -1,4 +1,4 @@
-# 🌿 AgroChain — Certificación Agrícola On/Off-Chain
+# 🌿 AgroChain — Certificación Agrícola Off/On-Chain
 
 > Sistema de trazabilidad e integridad de datos agrícolas con registro inmutable en **Polygon Blockchain**.
 > Cumple normativa colombiana: **ICA Res. 3168/2015 · NTC 5400 BPA · INVIMA Inocuidad**.
