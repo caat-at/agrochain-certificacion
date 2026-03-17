@@ -15,6 +15,7 @@ import {
   CampanaDetalle,
   PlantaCampana,
 } from "../src/services/campanas";
+import { yaAporteLocalExiste, listarAportesPendientes } from "../src/services/db";
 
 const VERDE = "#1a7f4b";
 
@@ -35,16 +36,29 @@ export default function CampanaDetalleScreen() {
   const [cargando, setCargando]   = useState(true);
   const [actualizando, setActualizando] = useState(false);
   const [filtro, setFiltro]       = useState<"TODAS" | "PENDIENTES" | "COMPLETAS">("PENDIENTES");
+  // IDs de plantas que ya tienen aporte guardado localmente (pendiente de sync)
+  const [aportesLocales, setAportesLocales] = useState<Set<string>>(new Set());
 
   const cargar = useCallback(async () => {
     if (!loteId) return;
     try {
-      const det = await cargarCampanaDesdeServidor(loteId);
+      const [det, aportesPendientes] = await Promise.all([
+        cargarCampanaDesdeServidor(loteId),
+        listarAportesPendientes(),
+      ]);
       setDetalle(det);
+      // Construir set de plantaIds con aporte local pendiente para esta campaña
+      const idsCampana = campanaId as string;
+      const localSet = new Set(
+        aportesPendientes
+          .filter((a) => a.campanaId === idsCampana && a.syncEstado !== "RECHAZADO")
+          .map((a) => a.plantaId)
+      );
+      setAportesLocales(localSet);
     } catch (err) {
       Alert.alert("Error", String(err));
     }
-  }, [loteId]);
+  }, [loteId, campanaId]);
 
   useEffect(() => {
     cargar().finally(() => setCargando(false));
@@ -55,7 +69,7 @@ export default function CampanaDetalleScreen() {
     await cargar().finally(() => setActualizando(false));
   }
 
-  function abrirAporte(planta: PlantaCampana) {
+  async function abrirAporte(planta: PlantaCampana) {
     if (!detalle) return;
 
     if (planta.estadoRegistro === "COMPLETO") {
@@ -65,6 +79,16 @@ export default function CampanaDetalleScreen() {
 
     if (planta.yaTecnicoAporto) {
       Alert.alert("Ya registraste", "Ya enviaste tu aporte para esta planta en esta campaña.");
+      return;
+    }
+
+    // Verificar también contra aportes guardados localmente (pendientes de sincronizar)
+    const hayAporteLocal = await yaAporteLocalExiste(campanaId as string, planta.id);
+    if (hayAporteLocal) {
+      Alert.alert(
+        "Aporte pendiente",
+        "Ya tienes un aporte guardado para esta planta pendiente de sincronizar. Ve a la pestaña Sincronizar para enviarlo."
+      );
       return;
     }
 
@@ -200,7 +224,8 @@ export default function CampanaDetalleScreen() {
         }
         renderItem={({ item: planta }) => {
           const est = ESTADO_ICONO[planta.estadoRegistro] ?? ESTADO_ICONO["SIN_REGISTRO"];
-          const bloqueada = planta.completo || planta.yaTecnicoAporto;
+          const tieneAporteLocal = aportesLocales.has(planta.id);
+          const bloqueada = planta.completo || planta.yaTecnicoAporto || tieneAporteLocal;
           return (
             <TouchableOpacity
               style={[s.plantaCard, bloqueada && s.plantaCardCompleta]}
@@ -227,6 +252,12 @@ export default function CampanaDetalleScreen() {
                   </View>
                   <Text style={[s.plantaEstado, { color: est.color }]}>{est.label}</Text>
                 </View>
+                {tieneAporteLocal && !planta.yaTecnicoAporto && !planta.completo && (
+                  <View style={s.pendienteSyncBadge}>
+                    <Ionicons name="cloud-upload-outline" size={11} color="#fff" />
+                    <Text style={s.pendienteSyncText}>Por sincronizar</Text>
+                  </View>
+                )}
                 {planta.yaTecnicoAporto && !planta.completo && (
                   <View style={s.yaAporteBadge}>
                     <Ionicons name="checkmark" size={11} color="#fff" />
@@ -354,4 +385,8 @@ const s = StyleSheet.create({
   yaAporteBadge: { flexDirection: "row", alignItems: "center", gap: 3,
                     backgroundColor: VERDE, borderRadius: 10, paddingHorizontal: 7, paddingVertical: 3 },
   yaAporteText:  { fontSize: 10, color: "#fff", fontWeight: "600" },
+  // Aporte guardado localmente pero pendiente de sincronizar
+  pendienteSyncBadge: { flexDirection: "row", alignItems: "center", gap: 3,
+                         backgroundColor: "#f59e0b", borderRadius: 10, paddingHorizontal: 7, paddingVertical: 3 },
+  pendienteSyncText:  { fontSize: 10, color: "#fff", fontWeight: "600" },
 });

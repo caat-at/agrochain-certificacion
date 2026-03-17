@@ -678,3 +678,21 @@ export async function listarAportesDeCampanaPlanta(
     [campanaId, plantaId]
   );
 }
+
+/**
+ * Verifica si el técnico ya tiene un aporte guardado localmente
+ * para una planta+campaña específica (sin importar syncEstado).
+ * Previene doble registro cuando el aporte aún no se ha sincronizado.
+ */
+export async function yaAporteLocalExiste(
+  campanaId: string,
+  plantaId: string
+): Promise<boolean> {
+  const db = getDb();
+  const row = await db.getFirstAsync<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt FROM aportes_pendientes
+     WHERE campanaId = ? AND plantaId = ? AND syncEstado != 'RECHAZADO'`,
+    [campanaId, plantaId]
+  );
+  return (row?.cnt ?? 0) > 0;
+}
