@@ -1,0 +1,870 @@
+// =============================================================================
+// AGROCHAIN - Schema Prisma
+// Base de datos: SQLite via Turso (libSQL)
+// Normas: ICA, NTC 5400 BPA, INVIMA - Colombia
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+// Roles del sistema segun normativa colombiana
+enum RolUsuario {
+  AGRICULTOR
+  INSPECTOR_ICA
+  INSPECTOR_BPA
+  CERTIFICADORA
+  INVIMA
+  ADMIN
+  CONSUMIDOR
+  TECNICO       // Técnico de campo — registra aportes en campañas ABIERTAS
+}
+
+enum TipoDocumento {
+  CC   // Cedula de ciudadania
+  CE   // Cedula de extranjeria
+  NIT  // Numero de identificacion tributaria
+  PPN  // Pasaporte
+}
+
+enum TipoOrganizacion {
+  CERTIFICADORA
+  ICA
+  INVIMA
+  COOPERATIVA
+  INDEPENDIENTE
+}
+
+enum FuenteAgua {
+  ACUEDUCTO
+  RIO
+  POZO
+  LLUVIA
+  MIXTA
+}
+
+enum EstadoLote {
+  REGISTRADO
+  EN_PRODUCCION
+  COSECHADO
+  INSPECCION_SOLICITADA
+  EN_INSPECCION
+  CERTIFICADO
+  RECHAZADO
+  REVOCADO
+}
+
+enum DestinoProduccion {
+  CONSUMO_INTERNO
+  EXPORTACION
+  AGROINDUSTRIA
+  MIXTO
+}
+
+enum TipoEvento {
+  PREPARACION_SUELO
+  SIEMBRA
+  FERTILIZACION
+  RIEGO
+  CONTROL_PLAGAS        // Requiere Registro ICA del producto
+  CONTROL_ENFERMEDADES  // Requiere Registro ICA del producto
+  PODA
+  COSECHA
+  POSTCOSECHA
+  MONITOREO             // Observacion sin intervencion
+  OTRO
+}
+
+// Categorias toxicologicas segun ICA Colombia
+enum CategoriaToxicologica {
+  IA_EXTREMADAMENTE_PELIGROSO
+  IB_MUY_PELIGROSO
+  II_MODERADAMENTE_PELIGROSO
+  III_POCO_PELIGROSO
+  IV_MUY_POCO_PELIGROSO
+}
+
+enum TipoInspeccion {
+  ICA_INICIAL
+  ICA_SEGUIMIENTO
+  BPA_CERTIFICACION
+  BPA_RENOVACION
+  INVIMA
+  INTERNA
+}
+
+enum ResultadoInspeccion {
+  APROBADO
+  APROBADO_CON_OBSERVACIONES
+  RECHAZADO
+  PENDIENTE
+}
+
+enum EstadoInspeccion {
+  PROGRAMADA
+  EN_CURSO
+  COMPLETADA
+  CANCELADA
+}
+
+enum TipoCertificado {
+  BPA_ICA
+  ORGANICO
+  GLOBAL_GAP
+  RAINFOREST
+  INVIMA_INOCUIDAD
+}
+
+// Estado de sincronizacion off-chain → on-chain
+enum EstadoSync {
+  PENDIENTE    // Solo en dispositivo movil
+  VERIFICADO   // Hash verificado, guardado en Turso
+  EN_CADENA    // Hash registrado en Polygon
+  RECHAZADO    // Hash no coincidio al sincronizar
+}
+
+enum TipoDocumentoArchivo {
+  FOTO
+  VIDEO
+  PDF
+  ANALISIS_LABORATORIO
+  CERTIFICADO
+  OTRO
+}
+
+enum EstadoTx {
+  PENDIENTE
+  CONFIRMADO
+  FALLIDO
+}
+
+enum MetodoRiego {
+  GOTEO
+  ASPERSION
+  GRAVEDAD
+  SURCOS
+}
+
+// Criticidad hallazgos NTC 5400
+enum CriticidadHallazgo {
+  CRITICO
+  MAYOR
+  MENOR
+}
+
+// =============================================================================
+// USUARIOS Y ORGANIZACIONES
+// =============================================================================
+
+model Usuario {
+  id               String        @id @default(cuid())
+  nombres          String
+  apellidos        String
+  tipoDocumento    TipoDocumento
+  numeroDocumento  String        @unique
+  email            String?       @unique
+  telefono         String?
+  walletAddress    String?       @unique  // Polygon wallet
+  passwordHash     String?                // SHA256 de la contraseña (dev) o bcrypt (produccion)
+  rol              RolUsuario
+  activo           Boolean       @default(true)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  // Relaciones
+  organizaciones   UsuarioOrganizacion[]
+  predios          Predio[]
+  lotes            Lote[]
+  eventosCreados   EventoProduccion[]    @relation("EventoCreadoPor")
+  inspeccionesComoInspector Inspeccion[] @relation("InspectorInspeccion")
+  certificadosAprobados     Certificado[] @relation("CertificadoAprobadoPor")
+  documentosSubidos         Documento[]
+  plantasRegistradas        Planta[]
+  campanasCreadas  Campana[]             @relation("CampanaCreada")
+  campanasCerradas Campana[]             @relation("CampanaCerrada")
+  aportesTecnico   AporteTecnico[]
+  posicionesCampana CampanaTecnico[]
+
+  @@map("usuarios")
+}
+
+model Organizacion {
+  id           String           @id @default(cuid())
+  nombre       String
+  nit          String           @unique
+  tipo         TipoOrganizacion
+  resolucion   String?          // Nro. resolucion habilitante ICA/INVIMA
+  vigencia     DateTime?        // Fecha vigencia resolucion
+  direccion    String?
+  departamento String?
+  municipio    String?
+  activo       Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+
+  // Relaciones
+  usuarios     UsuarioOrganizacion[]
+  inspecciones Inspeccion[]
+
+  @@map("organizaciones")
+}
+
+model UsuarioOrganizacion {
+  usuarioId      String
+  organizacionId String
+  cargo          String?
+
+  usuario      Usuario      @relation(fields: [usuarioId], references: [id])
+  organizacion Organizacion @relation(fields: [organizacionId], references: [id])
+
+  @@id([usuarioId, organizacionId])
+  @@map("usuario_organizacion")
+}
+
+// =============================================================================
+// PREDIOS
+// Registro conforme ICA - Resolucion 3168 de 2015
+// =============================================================================
+
+model Predio {
+  id                String      @id @default(cuid())
+  agricultorId      String
+
+  // Identificacion — ICA Res. 3168/2015
+  nombrePredio      String
+  codigoIca         String?     @unique  // Registro ICA del predio — obligatorio BPA
+  matriculaInmobiliaria String?          // Matricula catastral IGAC
+
+  // Ubicacion — georeferenciacion obligatoria ICA
+  departamento      String
+  municipio         String
+  vereda            String?
+  direccion         String?
+  latitud           Float
+  longitud          Float
+  altitudMsnm       Float?
+
+  // Areas — NTC 5400 §3.1
+  areaTotalHa       Float
+  areaProductivaHa  Float?
+  areaBosqueHa      Float?     // Area de bosque/conservacion
+  areaViverosHa     Float?     // Area de viveros en predio
+
+  // Caracteristicas agronomicas — NTC 5400 §4.1
+  fuenteAgua        FuenteAgua?
+  tipoSuelo         String?    // Franco / arcilloso / arenoso / franco-arcilloso
+  pendientePct      Float?     // Pendiente promedio del terreno (%)
+  usoPrevio         String?    // Uso anterior del suelo (rotacion)
+  certifUsoSuelo    String?    // Certificado uso de suelo POT municipal
+
+  // Infraestructura BPA — NTC 5400 §4.10
+  tieneBodegaAgroquimicos Boolean @default(false)  // Bodega exclusiva y senalizada
+  tieneAguaPotable        Boolean @default(false)  // Acceso agua potable operarios
+  tieneSSSBasicas         Boolean @default(false)  // Servicios sanitarios en campo
+  tieneZonaAcopio         Boolean @default(false)  // Zona acopio postcosecha
+
+  activo            Boolean     @default(true)
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  // Relaciones
+  agricultor        Usuario     @relation(fields: [agricultorId], references: [id])
+  lotes             Lote[]
+  analisusSuelo     AnalisisSuelo[]
+
+  @@map("predios")
+}
+
+model AnalisisSuelo {
+  id               String    @id @default(cuid())
+  predioId         String
+  fechaMuestreo    DateTime
+  laboratorio      String
+  ph               Float?
+  materiaOrganica  Float?
+  nitrogeno        Float?
+  fosforo          Float?
+  potasio          Float?
+  calcio           Float?
+  magnesio         Float?
+  resultadoCid     String?   // CID IPFS del informe PDF
+  resultadoHash    String?   // Hash guardado en Polygon
+  txHash           String?
+  createdAt        DateTime  @default(now())
+
+  predio           Predio    @relation(fields: [predioId], references: [id])
+
+  @@map("analisis_suelo")
+}
+
+// =============================================================================
+// PLANTAS / ARBOLES
+// Identificacion unica de cada planta/individuo en el lote
+// NTC 5400 §4.3 — Siembra e identificacion individual
+// ICA Resolucion 3168/2015 — trazabilidad de material vegetal
+// =============================================================================
+
+model Planta {
+  id             String   @id @default(cuid())
+  loteId         String
+  codigoPlanta   String   // QR, NFC o codigo manual — identificacion unica
+  numeroPlanta   String   // Numero secuencial en el lote
+
+  // Ubicacion georeferenciada — ICA obligatorio
+  latitud        Float
+  longitud       Float
+  altitudMsnm    Float?
+
+  // Identificacion botanica — NTC 5400 §4.2
+  especie        String?  // Nombre cientifico — puede diferir del lote (injertos)
+  variedad       String?  // Cultivar o clon
+
+  // Origen del material vegetal — ICA Res. 3168/2015 art. 7
+  origenMaterial    String?  // SEMILLA_CERTIFICADA | ESQUEJE | INJERTO | ACODO | VIVERO
+  procedenciaVivero String?  // Nombre y registro ICA del vivero proveedor
+
+  // Fecha de siembra — NTC 5400 §4.3.1
+  fechaSiembra   DateTime?
+
+  // Estado morfologico en siembra — NTC 5400 §4.3 (medicion inicial)
+  alturaCmInicial       Float?   // Altura de la plantula al momento de siembra (cm)
+  diametroTalloCmInicial Float?  // Diametro del tallo base en siembra (cm)
+  numHojasInicial       Int?     // Numero de hojas al momento de siembra
+  estadoFenologicoInicial String? // Estado fenologico: plantula, V1, V2, R1...
+
+  activo         Boolean  @default(true)
+  registradoPor  String
+  createdAt      DateTime @default(now())
+
+  lote           Lote     @relation(fields: [loteId], references: [id])
+  registrador    Usuario  @relation(fields: [registradoPor], references: [id])
+  eventos        EventoProduccion[]
+  registrosCampana RegistroPlanta[]
+
+  @@unique([loteId, codigoPlanta])  // No puede haber dos plantas con el mismo codigo en el lote
+  @@unique([loteId, numeroPlanta])  // No puede haber dos numeros iguales en el lote
+  @@map("plantas")
+}
+
+// =============================================================================
+// LOTES
+// Unidad trazable principal
+// =============================================================================
+
+model Lote {
+  id                String            @id @default(cuid())
+  predioId          String
+  agricultorId      String
+
+  // Identificacion — NTC 5400 §3 / ICA
+  codigoLote        String            @unique  // Formato: COL-{DEP}-{YYYY}-{SEQ}
+  especie           String            // Nombre cientifico (ej: Coffea arabica)
+  variedad          String            // Cultivar (ej: Castillo, Caturra, Hass)
+  areaHa            Float             // Area del lote en hectareas
+
+  // Fechas — NTC 5400 §4.3
+  fechaSiembra      DateTime?
+  fechaCosechaEst   DateTime?         // Estimada segun ciclo del cultivo
+  fechaCosechaReal  DateTime?
+
+  // Produccion — NTC 5400 §4.9
+  volumenCosechaKg  Float?
+  destinoProduccion DestinoProduccion?
+
+  // Sistema de produccion — NTC 5400 §4.1
+  sistemaRiego      String?           // GOTEO | ASPERSION | GRAVEDAD | TEMPORAL
+  distanciaSiembraM Float?            // Distancia entre plantas (metros)
+  densidadPlantas   Int?              // Plantas por hectarea
+  cultivoAnterior   String?           // Cultivo previo — rotacion NTC 5400 §4.2
+
+  estado            EstadoLote        @default(REGISTRADO)
+
+  // Trazabilidad Blockchain
+  loteIdOnchain     String?           @unique  // bytes32 en Polygon
+  dataHash          String?           // keccak256 de datos del lote
+  txRegistro        String?           // TX hash Polygon - registro inicial
+  syncEstado        EstadoSync        @default(PENDIENTE)
+
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  // Relaciones
+  predio            Predio            @relation(fields: [predioId], references: [id])
+  agricultor        Usuario           @relation(fields: [agricultorId], references: [id])
+  plantas           Planta[]
+  eventos           EventoProduccion[]
+  inspecciones      Inspeccion[]
+  certificado       Certificado?
+  documentos        Documento[]       @relation("DocumentoLote")
+  campanas          Campana[]
+
+  @@map("lotes")
+}
+
+// =============================================================================
+// EVENTOS DE PRODUCCION
+// NTC 5400 numerales 4.3 a 4.9
+// Con integridad de hash desde campo
+// =============================================================================
+
+model EventoProduccion {
+  id             String     @id @default(cuid())
+  loteId         String
+  plantaId       String?    // NULL = evento de lote completo
+  creadoPor      String
+
+  tipoEvento     TipoEvento
+  descripcion    String
+  fechaEvento    DateTime
+
+  // Ubicacion en campo
+  latitud        Float?
+  longitud       Float?
+  altitudMsnm    Float?
+
+  // ── INTEGRIDAD DE DATOS DESDE CAMPO ──────────────────────────────────────
+  // SHA256 generado en el dispositivo ANTES de guardar
+  // Incluye: plantaId+tipoEvento+fechaEvento+gps+tecnicoId+datosJSON+fotoBytes
+  contentHash    String     @unique  // Previene duplicados exactos
+  hashVerificado Boolean    @default(false)  // Backend confirmo que hash coincide
+  rechazMotivo   String?    // Si hashVerificado=false, aqui esta la razon
+
+  // Sincronizacion
+  syncEstado     EstadoSync @default(PENDIENTE)
+
+  // Evidencia off-chain → on-chain
+  ipfsCid        String?    // CID foto/video en IPFS
+  evidenciaHash  String?    // Hash de evidencia guardado en Polygon
+  txHash         String?    // TX Polygon
+
+  createdAt      DateTime   @default(now())
+
+  // Relaciones
+  lote           Lote       @relation(fields: [loteId], references: [id])
+  planta         Planta?    @relation(fields: [plantaId], references: [id])
+  creador        Usuario    @relation("EventoCreadoPor", fields: [creadoPor], references: [id])
+  aplicacionAgroquimico AplicacionAgroquimico?
+  registroRiego  RegistroRiego?
+  documentos     Documento[]
+
+  @@map("eventos_produccion")
+}
+
+// =============================================================================
+// APLICACIONES DE AGROQUIMICOS
+// NTC 5400 num. 4.7 + ICA
+// Solo productos con Registro ICA valido
+// =============================================================================
+
+model AplicacionAgroquimico {
+  id                     String                 @id @default(cuid())
+  eventoId               String                 @unique
+  loteId                 String
+  nombreProducto         String
+  registroIca            String                 // Nro. Registro ICA OBLIGATORIO
+  ingredienteActivo      String
+  categoriaToxicologica  CategoriaToxicologica
+  dosisAplicada          Float
+  unidadDosis            String                 // kg/ha, L/ha, mL/planta, etc.
+  periodoCarenciaDias    Int                    // Dias antes de cosecha
+  fechaUltimaAplicacion  DateTime
+  fechaCosechaPosible    DateTime               // fechaUltima + periodoCarencia
+  operarioId             String?
+  eppUtilizado           String?                // Equipo de proteccion personal
+  justificacion          String?                // Por que se aplico (umbral economico)
+  createdAt              DateTime               @default(now())
+
+  evento                 EventoProduccion       @relation(fields: [eventoId], references: [id])
+
+  @@map("aplicaciones_agroquimicos")
+}
+
+// =============================================================================
+// REGISTROS DE RIEGO
+// NTC 5400 num. 4.5 - Calidad del agua
+// =============================================================================
+
+model RegistroRiego {
+  id              String      @id @default(cuid())
+  eventoId        String      @unique
+  loteId          String
+  fuenteAgua      String
+  metodoRiego     MetodoRiego?
+  volumenM3       Float?
+  duracionHoras   Float?
+  analisisAguaCid String?     // CID IPFS analisis calidad agua
+  createdAt       DateTime    @default(now())
+
+  evento          EventoProduccion @relation(fields: [eventoId], references: [id])
+
+  @@map("registros_riego")
+}
+
+// =============================================================================
+// INSPECCIONES
+// Proceso de auditoria ICA / BPA / INVIMA
+// =============================================================================
+
+model Inspeccion {
+  id                String              @id @default(cuid())
+  loteId            String
+  inspectorId       String
+  organizacionId    String
+
+  tipoInspeccion    TipoInspeccion
+  fechaSolicitud    DateTime
+  fechaProgramada   DateTime?
+  fechaRealizada    DateTime?
+
+  resultado         ResultadoInspeccion @default(PENDIENTE)
+  puntaje           Float?              // % cumplimiento NTC 5400 (0-100)
+
+  // Hallazgos NTC 5400
+  hallazgosCriticos Int                 @default(0)
+  hallazgosMayores  Int                 @default(0)
+  hallazgosMenores  Int                 @default(0)
+  observaciones     String?
+  planMejora        String?
+  fechaLimiteMejora DateTime?
+
+  // Documentos
+  reporteCid        String?             // CID IPFS reporte firmado PDF
+  reporteHash       String?             // Hash en Polygon
+  txHash            String?
+
+  estado            EstadoInspeccion    @default(PROGRAMADA)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  // Relaciones
+  lote              Lote                @relation(fields: [loteId], references: [id])
+  inspector         Usuario             @relation("InspectorInspeccion", fields: [inspectorId], references: [id])
+  organizacion      Organizacion        @relation(fields: [organizacionId], references: [id])
+  checklistBpa      ChecklistBpa[]
+  certificado       Certificado?
+
+  @@map("inspecciones")
+}
+
+// =============================================================================
+// CHECKLIST BPA
+// Lista de verificacion NTC 5400
+// =============================================================================
+
+model ChecklistBpa {
+  id            String              @id @default(cuid())
+  inspeccionId  String
+  numeralNtc    String              // Ej: "4.3.1", "4.7.2"
+  descripcion   String
+  aplica        Boolean             @default(true)   // false = No aplica al cultivo
+  cumple        Boolean?            // null = N/A
+  criticidad    CriticidadHallazgo?
+  evidenciaCid  String?             // CID IPFS foto de evidencia
+  observacion   String?
+  createdAt     DateTime            @default(now())
+
+  inspeccion    Inspeccion          @relation(fields: [inspeccionId], references: [id])
+
+  // Referencia al numeral estandar
+  numeralRef    NumeralNtc5400?     @relation(fields: [numeralNtc], references: [codigo])
+
+  @@map("checklist_bpa")
+}
+
+// =============================================================================
+// NUMERALES NTC 5400 (Datos de referencia - seed)
+// Cargados en seed, no modificables por usuarios
+// =============================================================================
+
+model NumeralNtc5400 {
+  codigo       String   @id                // Ej: "4.3.1"
+  seccion      String                      // Ej: "4.3 Siembra"
+  descripcion  String
+  criticidad   CriticidadHallazgo
+  aplica       String                      // Tipos de cultivo que aplica
+
+  checklistItems ChecklistBpa[]
+
+  @@map("numerales_ntc5400")
+}
+
+// =============================================================================
+// CERTIFICADOS
+// Genera NFT ERC-721 en Polygon
+// =============================================================================
+
+model Certificado {
+  id               String          @id @default(cuid())
+  loteId           String          @unique
+  inspeccionId     String?         @unique   // Opcional para flujo simplificado
+  certificadoraId  String?                   // Wallet/org de la certificadora
+  aprobadoPorId    String?                   // ID del usuario que aprobó
+
+  tipo             TipoCertificado
+  numeroCertificado String         @unique   // Nro. oficial (ej: BPA-ANT-2024-00001)
+  fechaEmision     DateTime
+  fechaVencimiento DateTime
+  revocado         Boolean         @default(false)
+
+  // IPFS y blockchain
+  ipfsUri          String?                   // URI IPFS del JSON metadata del NFT
+  nftTokenId       String?                   // Token ID ERC-721
+  txEmision        String?                   // TX hash Polygon
+
+  // Acceso publico
+  qrCodeUrl        String?
+
+  createdAt        DateTime        @default(now())
+
+  // Relaciones
+  lote             Lote            @relation(fields: [loteId], references: [id])
+  inspeccion       Inspeccion?     @relation(fields: [inspeccionId], references: [id])
+  aprobadoPor      Usuario?        @relation("CertificadoAprobadoPor", fields: [aprobadoPorId], references: [id])
+
+  @@map("certificados")
+}
+
+// =============================================================================
+// DOCUMENTOS
+// Repositorio general - fotos, PDFs, videos (IPFS)
+// =============================================================================
+
+model Documento {
+  id          String               @id @default(cuid())
+  tipo        TipoDocumentoArchivo
+  nombre      String
+  ipfsCid     String               @unique
+  tamanoKb    Int?
+  hashSha256  String               // Hash local + guardado on-chain
+  txHash      String?              // TX Polygon con el hash
+  subidoPor   String
+
+  // Polimorfismo: a que entidad pertenece
+  loteId      String?
+  eventoId    String?
+
+  createdAt   DateTime             @default(now())
+
+  subidor     Usuario              @relation(fields: [subidoPor], references: [id])
+  lote        Lote?                @relation("DocumentoLote", fields: [loteId], references: [id])
+  evento      EventoProduccion?    @relation(fields: [eventoId], references: [id])
+
+  @@map("documentos")
+}
+
+// =============================================================================
+// BLOCKCHAIN TXS
+// Log de todas las transacciones Polygon
+// =============================================================================
+
+model BlockchainTx {
+  id         String    @id @default(cuid())
+  txHash     String    @unique
+  red        String    @default("polygon-amoy")  // polygon-amoy | polygon
+  contrato   String                              // Nombre del contrato
+  metodo     String                              // Metodo llamado
+  entidad    String                              // 'LOTE' | 'EVENTO' | 'CERTIFICADO'
+  entidadId  String
+  estado     EstadoTx  @default(PENDIENTE)
+  bloque     Int?
+  gasUsado   Int?
+  errorMsg   String?
+  createdAt  DateTime  @default(now())
+
+  @@index([entidad, entidadId])
+  @@map("blockchain_txs")
+}
+
+// =============================================================================
+// DEPARTAMENTOS Y MUNICIPIOS COLOMBIA (Datos de referencia - seed)
+// =============================================================================
+
+model Departamento {
+  codigo    String      @id   // Ej: "05"
+  nombre    String
+  municipios Municipio[]
+
+  @@map("departamentos")
+}
+
+model Municipio {
+  codigo          String      @id   // Ej: "05001"
+  nombre          String
+  departamentoCod String
+  departamento    Departamento @relation(fields: [departamentoCod], references: [codigo])
+
+  @@map("municipios")
+}
+
+// =============================================================================
+// CAMPAÑAS DE VISITA
+// Ronda de visitas a todas las plantas de un lote
+// Una campaña agrupa registros multi-técnico con integridad por niveles
+// =============================================================================
+
+enum EstadoCampana {
+  ACTIVA      // Creada, técnicos NO pueden registrar aún
+  ABIERTA     // Técnicos pueden registrar aportes
+  CERRADA     // Hash final generado, sellada
+}
+
+enum EstadoRegistroPlanta {
+  PENDIENTE            // Sin aportes aún
+  PARCIAL              // Algunos técnicos han guardado, faltan otros
+  COMPLETO             // Los 4 técnicos guardaron y hashes válidos
+  ADULTERADO           // Algún contentHash no coincide, pendiente acción
+  INVALIDADO           // Adulterado y reemplazado por nuevo registro (queda en auditoría)
+}
+
+model Campana {
+  id             String         @id @default(cuid())
+  loteId         String
+  nombre         String         // Ej: "Campaña 1 - Marzo 2026"
+  codigo         String?        // Código legible único: Ej: "MANGO26", "AGUAC-2026-01"
+  descripcion    String?
+  estado         EstadoCampana  @default(ACTIVA)
+
+  // Campos requeridos para considerar un registro COMPLETO
+  // JSON array: ["descripcion", "alturaCm", "diametroTalloCm", ...]
+  camposRequeridos String       // JSON serializado
+
+  // Hash final de la campaña (SHA256 de todos los contentHash de registros COMPLETOS)
+  campanaHash    String?        // Generado al cerrar
+  txHash         String?        // TX Polygon al verificar on-chain
+  syncEstado     EstadoSync     @default(PENDIENTE)
+
+  // Cierre con advertencia — cuando se cierra manualmente con registros incompletos
+  cierreConAdvertencia Boolean  @default(false)
+  motivoCierre           String? // Observación del ADMIN al cerrar manualmente
+
+  // Auditoría
+  creadaPor      String
+  cerradaPor     String?
+  fechaApertura  DateTime       @default(now())
+  fechaCierre    DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  // Relaciones
+  lote           Lote           @relation(fields: [loteId], references: [id])
+  creador        Usuario        @relation("CampanaCreada", fields: [creadaPor], references: [id])
+  cerrador       Usuario?       @relation("CampanaCerrada", fields: [cerradaPor], references: [id])
+  registros      RegistroPlanta[]
+  tecnicos       CampanaTecnico[]
+
+  @@map("campanas")
+}
+
+model RegistroPlanta {
+  id             String               @id @default(cuid())
+  campanaId      String
+  plantaId       String
+  estado         EstadoRegistroPlanta @default(PENDIENTE)
+
+  // Consecutivo por campaña — 1, 2, 3... (se asigna al crear el primer aporte)
+  consecutivo    Int?
+
+  // Fecha del evento — capturada automáticamente cuando el primer técnico guarda
+  fechaEvento    DateTime?
+
+  // Hash final del registro (SHA256 de todos los contentHash de aportes ordenados por posición)
+  // Solo se genera cuando estado = COMPLETO
+  contentHash    String?
+
+  // Verificación on-chain
+  txHash         String?
+  syncEstado     EstadoSync           @default(PENDIENTE)
+
+  // Adulteración — evidencia forense
+  adulteradoDetectadoEn  DateTime?
+  adulteradoDetectadoPor String?      // "sistema" o usuarioId
+  registroReemplazanteId String?      // ID del nuevo registro si hubo reregistro (INVALIDADO → nuevo)
+
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  // Relaciones
+  campana        Campana              @relation(fields: [campanaId], references: [id])
+  planta         Planta               @relation(fields: [plantaId], references: [id])
+  aportes        AporteTecnico[]
+
+  // Un registro ACTIVO por planta por campaña
+  // Los INVALIDADOS coexisten para auditoría
+  @@index([campanaId, plantaId])
+  @@map("registros_planta")
+}
+
+// Asignación de técnicos a posiciones en una campaña
+// Las posiciones son fijas (1-4), el técnico asignado puede cambiar campaña a campaña
+model CampanaTecnico {
+  id              String   @id @default(cuid())
+  campanaId       String
+  tecnicoId       String
+  posicion        Int      // 1, 2, 3, 4 — slot fijo de la campaña
+
+  // Campos que debe llenar este técnico — JSON array
+  // Ej: ["descripcion", "foto", "audio"] para posición 1
+  camposAsignados String   // JSON serializado
+
+  createdAt       DateTime @default(now())
+
+  // Relaciones
+  campana         Campana  @relation(fields: [campanaId], references: [id])
+  tecnico         Usuario  @relation(fields: [tecnicoId], references: [id])
+
+  // Una posición por campaña, un técnico por campaña por posición
+  @@unique([campanaId, posicion])
+  @@unique([campanaId, tecnicoId])
+  @@map("campana_tecnicos")
+}
+
+model AporteTecnico {
+  id               String   @id @default(cuid())
+  registroPlantaId String
+  campanaId        String
+  tecnicoId        String
+  posicion         Int      // 1, 2, 3, 4 — posición del técnico en la campaña
+
+  // Campos que aporta este técnico — JSON: { "alturaCm": 120, "diametroTalloCm": 4.5 }
+  campos           String   // JSON serializado
+
+  // Evidencia propia del técnico
+  fotoHash         String?  // SHA256 de su foto
+  fotoUri          String?  // Ruta local (solo app móvil)
+  audioHash        String?  // SHA256 de su audio
+  audioUri         String?  // Ruta local (solo app móvil)
+
+  // Hash de integridad inmutable:
+  // SHA256(plantaId + campanaId + tecnicoId + posicion + campos + fotoHash + audioHash + latitud + longitud + fechaAporte)
+  contentHash      String   @unique  // Previene duplicados exactos
+
+  // Verificación posterior — si el contentHash ya no coincide → adulterado
+  hashVerificado   Boolean  @default(false)
+  hashRechazMotivo String?  // Razón si no coincide
+
+  // Metadatos de campo — capturados automáticamente al guardar
+  latitud          Float?
+  longitud         Float?
+  fechaAporte      DateTime @default(now())
+
+  // Sincronización
+  syncEstado       String   @default("PENDIENTE") // PENDIENTE | SINCRONIZADO | RECHAZADO
+
+  createdAt        DateTime @default(now())
+
+  // Relaciones
+  registro         RegistroPlanta @relation(fields: [registroPlantaId], references: [id])
+  tecnico          Usuario        @relation(fields: [tecnicoId], references: [id])
+
+  // Un aporte por técnico por registro
+  @@unique([registroPlantaId, tecnicoId])
+  @@map("aportes_tecnicos")
+}

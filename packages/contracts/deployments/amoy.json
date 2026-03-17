@@ -1,0 +1,11 @@
+{
+  "red": "amoy",
+  "chainId": 80002,
+  "deployer": "0x3eFC4598a96aAE5EEb55E4CEe3093Ba759C578Cd",
+  "timestamp": "2026-03-09T22:04:28.195Z",
+  "contratos": {
+    "RoleManager": "0x84565cf3d3A9Ed7589d4D972B45247C17f586bd0",
+    "LoteRegistry": "0x6f4C1D2c02f39bB8B50E848CdA743F8300bcc5dc",
+    "CertificadoNFT": "0x338b8413CaB60D31E4CE7f272f7eFfE73280A538"
+  }
+}
