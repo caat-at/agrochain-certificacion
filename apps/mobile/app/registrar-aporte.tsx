@@ -66,7 +66,10 @@ export default function RegistrarAporteScreen() {
     campos: string | string[];  // Expo Router puede decodificar el array automáticamente
   }>();
 
-  const posicion = parseInt(posicionParam ?? "0", 10);
+  const posicion    = parseInt(posicionParam ?? "0", 10);
+  // Normalizar a string simple (Expo Router puede devolver string | string[])
+  const campanaIdStr = Array.isArray(campanaId) ? campanaId[0] : (campanaId ?? "");
+  const plantaIdStr  = Array.isArray(plantaId)  ? plantaId[0]  : (plantaId  ?? "");
 
   // Expo Router puede devolver el parámetro como string o string[] si detecta corchetes
   const camposAsignados: string[] = (() => {
@@ -113,10 +116,10 @@ export default function RegistrarAporteScreen() {
   useEffect(() => {
     obtenerGps();
     // Verificar si ya existe un aporte local para esta planta+campaña
-    if (campanaId && plantaId) {
-      yaAporteLocalExiste(campanaId, plantaId).then(setYaRegistrado);
+    if (campanaIdStr && plantaIdStr) {
+      yaAporteLocalExiste(campanaIdStr, plantaIdStr).then(setYaRegistrado);
     }
-  }, []);
+  }, [campanaIdStr, plantaIdStr]);
 
   async function obtenerGps() {
     setObteniendoGps(true);
@@ -210,8 +213,8 @@ export default function RegistrarAporteScreen() {
       }
 
       await guardarAporteLocal({
-        campanaId,
-        plantaId,
+        campanaId: campanaIdStr,
+        plantaId:  plantaIdStr,
         posicion,
         campos:    camposObj,
         fotoHash:  fotoHash ?? undefined,
