@@ -10,7 +10,7 @@ import {
 import { useCallback, useState } from "react";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { obtenerPlanta, PlantaLocal, listarEventosPorPlanta, guardarEvento, EventoLocal } from "../src/services/db";
+import { obtenerPlanta, PlantaLocal, listarEventosPorPlanta, guardarEvento, EventoLocal, yaAporteLocalExiste } from "../src/services/db";
 import { cargarEventosDesdeServidor } from "../src/services/sync";
 import { cargarCampanaDesdeServidor, PlantaCampana } from "../src/services/campanas";
 
@@ -66,6 +66,7 @@ export default function DetallePlantaScreen() {
     misCampos: string[];      // todos los campos asignados al técnico (incluye foto/audio)
     miPosicion: number | null;
     puedeRegistrar: boolean;
+    tieneAporteLocal: boolean; // aporte guardado localmente pero aún no sincronizado
   } | null>(null);
 
   useFocusEffect(
@@ -89,13 +90,16 @@ export default function DetallePlantaScreen() {
               const estado = plantaEnCampana?.estadoRegistro ?? "SIN_REGISTRO";
               // Puede registrar si: sin registro, parcial o adulterado
               const puedeRegistrar = ["SIN_REGISTRO", "PARCIAL", "PENDIENTE", "ADULTERADO"].includes(estado);
+              // Verificar si ya hay un aporte guardado localmente pendiente de sync
+              const tieneAporteLocal = await yaAporteLocalExiste(det.campana.id, plantaId);
               setEstadoEnCampana({
-                campanaId:       det.campana.id,
-                estadoRegistro:  estado,
-                camposFaltantes: plantaEnCampana?.camposFaltantes ?? [],
-                misCampos:       det.misCampos ?? [],
-                miPosicion:      det.miPosicion ?? null,
-                puedeRegistrar,
+                campanaId:        det.campana.id,
+                estadoRegistro:   estado,
+                camposFaltantes:  plantaEnCampana?.camposFaltantes ?? [],
+                misCampos:        det.misCampos ?? [],
+                miPosicion:       det.miPosicion ?? null,
+                puedeRegistrar:   puedeRegistrar && !tieneAporteLocal,
+                tieneAporteLocal,
               });
             } else {
               setEstadoEnCampana(null); // Sin campaña activa
@@ -191,7 +195,7 @@ export default function DetallePlantaScreen() {
         </View>
         {/* Botón Nueva visita — solo si hay campaña activa y la planta puede registrar */}
         {estadoEnCampana === null ? (
-          // Sin campaña activa — botón deshabilitado con tooltip
+          // Sin campaña activa
           <TouchableOpacity
             style={[styles.btnNuevoEvento, styles.btnDeshabilitado]}
             onPress={() => Alert.alert(
@@ -202,8 +206,20 @@ export default function DetallePlantaScreen() {
             <Ionicons name="lock-closed-outline" size={16} color="rgba(255,255,255,0.5)" />
             <Text style={[styles.btnNuevoEventoText, { opacity: 0.5 }]}>Sin campaña</Text>
           </TouchableOpacity>
+        ) : estadoEnCampana.tieneAporteLocal ? (
+          // Aporte guardado localmente — pendiente de sincronizar
+          <TouchableOpacity
+            style={[styles.btnNuevoEvento, styles.btnPendienteSync]}
+            onPress={() => Alert.alert(
+              "Aporte pendiente",
+              "Ya tienes un aporte guardado para esta planta pendiente de sincronizar. Ve a la pestaña Sincronizar para enviarlo."
+            )}
+          >
+            <Ionicons name="cloud-upload-outline" size={16} color="#fff" />
+            <Text style={styles.btnNuevoEventoText}>Por sincronizar</Text>
+          </TouchableOpacity>
         ) : estadoEnCampana.puedeRegistrar ? (
-          // Puede registrar — navegar a registrar-aporte con campos faltantes
+          // Puede registrar
           <TouchableOpacity
             style={styles.btnNuevoEvento}
             onPress={() => router.push(
@@ -216,7 +232,7 @@ export default function DetallePlantaScreen() {
             </Text>
           </TouchableOpacity>
         ) : (
-          // Registro completo — no puede registrar más
+          // Registro completo
           <TouchableOpacity
             style={[styles.btnNuevoEvento, styles.btnCompleto]}
             onPress={() => Alert.alert(
@@ -374,8 +390,9 @@ const styles = StyleSheet.create({
     borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6,
   },
   btnNuevoEventoText: { color: "#fff", fontSize: 13, fontWeight: "600" },
-  btnDeshabilitado: { backgroundColor: "rgba(255,255,255,0.1)" },
-  btnCompleto: { backgroundColor: "rgba(16,185,129,0.3)" },
+  btnDeshabilitado:   { backgroundColor: "rgba(255,255,255,0.1)" },
+  btnCompleto:        { backgroundColor: "rgba(16,185,129,0.3)" },
+  btnPendienteSync:   { backgroundColor: "rgba(245,158,11,0.5)" },
   tarjeta: {
     backgroundColor: "#fff", marginHorizontal: 16, marginTop: 12,
     borderRadius: 12, padding: 16,
