@@ -20,6 +20,7 @@ import { Audio } from "expo-av";
 import { guardarAporteLocal } from "../src/services/campanas";
 import { generarHashFoto, generarHashAudio } from "../src/lib/hash";
 import { useSesion } from "../src/store/sesionStore";
+import { yaAporteLocalExiste } from "../src/services/db";
 
 const VERDE = "#1a7f4b";
 
@@ -87,7 +88,8 @@ export default function RegistrarAporteScreen() {
   const [valores, setValores] = useState<Record<string, string>>(
     Object.fromEntries(camposDatos.map((c) => [c, ""]))
   );
-  const [guardando, setGuardando] = useState(false);
+  const [guardando, setGuardando]       = useState(false);
+  const [yaRegistrado, setYaRegistrado] = useState(false);
   const [fechaHora] = useState(() => {
     const now = new Date();
     return now.toLocaleDateString("es-CO", { day: "2-digit", month: "2-digit", year: "numeric" })
@@ -110,6 +112,10 @@ export default function RegistrarAporteScreen() {
 
   useEffect(() => {
     obtenerGps();
+    // Verificar si ya existe un aporte local para esta planta+campaña
+    if (campanaId && plantaId) {
+      yaAporteLocalExiste(campanaId, plantaId).then(setYaRegistrado);
+    }
   }, []);
 
   async function obtenerGps() {
@@ -244,6 +250,19 @@ export default function RegistrarAporteScreen() {
           <Text style={s.posicionText}>P{posicion}</Text>
         </View>
       </View>
+
+      {/* Banner de bloqueo — ya existe aporte local */}
+      {yaRegistrado && (
+        <View style={s.bloqueadoBanner}>
+          <Ionicons name="lock-closed" size={20} color="#92400e" />
+          <View style={{ flex: 1 }}>
+            <Text style={s.bloqueadoTitulo}>Ya tienes un aporte guardado</Text>
+            <Text style={s.bloqueadoSub}>
+              Este registro está pendiente de sincronizar. Ve a la pestaña Sincronizar para enviarlo al servidor.
+            </Text>
+          </View>
+        </View>
+      )}
 
       <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
 
@@ -392,16 +411,16 @@ export default function RegistrarAporteScreen() {
 
         {/* Botón guardar */}
         <TouchableOpacity
-          style={[s.btnGuardar, guardando && s.btnDisabled]}
-          onPress={handleGuardar}
-          disabled={guardando}
+          style={[s.btnGuardar, (guardando || yaRegistrado) && s.btnDisabled]}
+          onPress={yaRegistrado ? undefined : handleGuardar}
+          disabled={guardando || yaRegistrado}
         >
           {guardando
             ? <ActivityIndicator size="small" color="#fff" />
-            : <Ionicons name="save-outline" size={18} color="#fff" />
+            : <Ionicons name={yaRegistrado ? "lock-closed-outline" : "save-outline"} size={18} color="#fff" />
           }
           <Text style={s.btnGuardarText}>
-            {guardando ? "Guardando..." : "Guardar aporte"}
+            {guardando ? "Guardando..." : yaRegistrado ? "Aporte ya registrado" : "Guardar aporte"}
           </Text>
         </TouchableOpacity>
 
@@ -468,4 +487,10 @@ const s = StyleSheet.create({
                      borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 10,
                      padding: 12, backgroundColor: "#f3f4f6" },
   inputBloqueadoText: { fontSize: 15, color: "#6b7280", flex: 1 },
+  // Banner aporte ya registrado localmente
+  bloqueadoBanner: { flexDirection: "row", alignItems: "flex-start", gap: 10,
+                     backgroundColor: "#fef3c7", borderBottomWidth: 1, borderBottomColor: "#fde68a",
+                     paddingHorizontal: 16, paddingVertical: 12 },
+  bloqueadoTitulo: { fontSize: 13, fontWeight: "700", color: "#92400e" },
+  bloqueadoSub:    { fontSize: 12, color: "#b45309", marginTop: 2, lineHeight: 16 },
 });
