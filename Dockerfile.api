@@ -1,6 +1,6 @@
-# Single stage — monorepo pnpm v3
-ARG CACHEBUST=1
-FROM node:22-alpine
+# Single stage — monorepo pnpm v4 (slim/glibc — libsql requiere glibc, no musl)
+ARG CACHEBUST=2
+FROM node:22-slim
 WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@10.15.0 --activate
