@@ -1,5 +1,5 @@
 # Single stage — monorepo pnpm v4 (slim/glibc — libsql requiere glibc, no musl)
-ARG CACHEBUST=2
+ARG CACHEBUST=3
 FROM node:22-slim
 WORKDIR /app
 
@@ -14,8 +14,14 @@ COPY apps/api/             ./apps/api/
 COPY packages/database/    ./packages/database/
 COPY packages/shared/      ./packages/shared/
 
-# Instalar dependencias
-RUN pnpm install --frozen-lockfile
+# Forzar plataforma glibc para binarios nativos (libsql)
+RUN pnpm config set node-linker hoisted && \
+    npm config set os linux && \
+    npm config set cpu x64 && \
+    npm config set libc glibc
+
+# Instalar dependencias (--no-frozen-lockfile para permitir resolución de plataforma)
+RUN pnpm install --no-frozen-lockfile
 
 # Generar Prisma client y compilar paquetes workspace
 RUN pnpm --filter @agrochain/database db:generate
