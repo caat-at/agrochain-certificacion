@@ -16,8 +16,10 @@ COPY packages/shared/      ./packages/shared/
 # Instalar dependencias
 RUN pnpm install --frozen-lockfile
 
-# Generar Prisma client
+# Generar Prisma client y compilar paquetes workspace
 RUN pnpm --filter @agrochain/database db:generate
+RUN pnpm --filter @agrochain/shared build
+RUN pnpm --filter @agrochain/database build
 
 EXPOSE 3001
 
