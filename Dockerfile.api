@@ -5,7 +5,7 @@ WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.15.0 --activate
 
 # Instalar tsx globalmente para asegurar disponibilidad
-RUN npm install -g tsx
+RUN npm install -g tsx@4.19.2
 
 # Copiar todo el monorepo
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
