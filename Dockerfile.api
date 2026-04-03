@@ -1,5 +1,5 @@
-# ── Stage 1: deps ────────────────────────────────────────────────────────────
-FROM node:22-alpine AS deps
+# ── Stage 1: deps + build ─────────────────────────────────────────────────────
+FROM node:22-alpine AS builder
 WORKDIR /app
 
 # Instalar pnpm
@@ -11,12 +11,8 @@ COPY apps/api/package.json                 ./apps/api/
 COPY packages/database/package.json        ./packages/database/
 COPY packages/shared/package.json          ./packages/shared/
 
-# Instalar solo dependencias de producción + dev necesarias para build
+# Instalar todas las dependencias
 RUN pnpm install --frozen-lockfile
-
-# ── Stage 2: build ────────────────────────────────────────────────────────────
-FROM deps AS builder
-WORKDIR /app
 
 # Copiar fuentes
 COPY tsconfig.json ./
@@ -27,38 +23,18 @@ COPY apps/api/             ./apps/api/
 # Generar Prisma client
 RUN pnpm --filter @agrochain/database db:generate
 
-# Compilar paquetes en orden
-RUN pnpm --filter @agrochain/shared      build
-RUN pnpm --filter @agrochain/database    build
-RUN pnpm --filter @agrochain/api         build
-
-# ── Stage 3: runner ───────────────────────────────────────────────────────────
+# ── Stage 2: runner ───────────────────────────────────────────────────────────
 FROM node:22-alpine AS runner
 WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@10.15.0 --activate
 
-# Solo manifests para instalar prod deps
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY apps/api/package.json                 ./apps/api/
-COPY packages/database/package.json        ./packages/database/
-COPY packages/shared/package.json          ./packages/shared/
-
-RUN pnpm install --frozen-lockfile --prod
-
-# Copiar artefactos compilados
-COPY --from=builder /app/apps/api/dist           ./apps/api/dist
-COPY --from=builder /app/packages/database/dist  ./packages/database/dist
-COPY --from=builder /app/packages/shared/dist    ./packages/shared/dist
-
-# Copiar Prisma schema + generated client (necesario en runtime)
-COPY --from=builder /app/packages/database/prisma       ./packages/database/prisma
-COPY --from=builder /app/node_modules/.pnpm             ./node_modules/.pnpm
-COPY --from=builder /app/node_modules/@prisma           ./node_modules/@prisma
-COPY --from=builder /app/node_modules/.modules.yaml     ./node_modules/.modules.yaml
+# Copiar todo desde builder (incluye node_modules con tsx)
+COPY --from=builder /app ./
 
 EXPOSE 3001
 
 ENV NODE_ENV=production
 
-CMD ["node", "apps/api/dist/index.js"]
+# Usar tsx directamente — evita errores de tsc en build
+CMD ["node_modules/.bin/tsx", "apps/api/src/index.ts"]
