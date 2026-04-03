@@ -1,25 +1,78 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { VerificacionPublica } from "@/types";
-import { formatFecha, truncarHash } from "@/lib/utils";
+import { formatFecha } from "@/lib/utils";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+const API        = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+const AMOY_SCAN  = "https://amoy.polygonscan.com/tx";
 
+/* ── helpers ─────────────────────────────────────────────────────────────── */
+function truncar(h: string, n = 10) {
+  return h.length > n * 2 + 3 ? `${h.slice(0, n)}…${h.slice(-n)}` : h;
+}
+
+/* Dot de color */
+function Dot({ color }: { color: "purple" | "yellow" | "green" | "gray" }) {
+  const bg: Record<string, string> = {
+    purple: "bg-purple-600",
+    yellow: "bg-yellow-400",
+    green:  "bg-emerald-400",
+    gray:   "bg-gray-300",
+  };
+  return <span className={`inline-block w-2.5 h-2.5 rounded-full flex-shrink-0 ${bg[color]}`} />;
+}
+
+/* Fila TX Polygon */
+function TxRow({ label, tx }: { label: string; tx: string }) {
+  return (
+    <div className="flex items-start gap-2 text-xs">
+      <Dot color="purple" />
+      <span className="text-gray-400 whitespace-nowrap">{label}</span>
+      <a
+        href={`${AMOY_SCAN}/${tx}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-mono text-purple-600 hover:underline break-all"
+      >
+        {tx}
+      </a>
+    </div>
+  );
+}
+
+/* Fila hash SHA-256 */
+function HashRow({ label, hash }: { label: string; hash: string }) {
+  return (
+    <div className="flex items-start gap-2 text-xs">
+      <Dot color="yellow" />
+      <span className="text-gray-400 whitespace-nowrap">{label}</span>
+      <span className="font-mono text-gray-600 break-all">{hash}</span>
+    </div>
+  );
+}
+
+/* ── componente principal ─────────────────────────────────────────────────── */
 export default function VerificarForm() {
-  const [codigo,   setCodigo]   = useState("");
-  const [loading,  setLoading]  = useState(false);
-  const [error,    setError]    = useState<string | null>(null);
-  const [datos,    setDatos]    = useState<VerificacionPublica | null>(null);
+  const searchParams = useSearchParams();
+  const [codigo,  setCodigo]  = useState(searchParams.get("codigo") ?? "");
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
+  const [datos,   setDatos]   = useState<VerificacionPublica | null>(null);
 
-  async function buscar(e: React.FormEvent) {
-    e.preventDefault();
-    if (!codigo.trim()) return;
+  /* Auto-buscar si viene ?codigo= en la URL (QR scan) */
+  useEffect(() => {
+    const cod = searchParams.get("codigo");
+    if (cod) buscarCodigo(cod);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function buscarCodigo(cod: string) {
     setLoading(true);
     setError(null);
     setDatos(null);
-
     try {
-      const res = await fetch(`${API}/api/verificar/${encodeURIComponent(codigo.trim())}`);
+      const res  = await fetch(`${API}/api/verificar/${encodeURIComponent(cod.trim())}`);
       const data = await res.json() as VerificacionPublica & { message?: string };
       if (!res.ok) throw new Error(data.message ?? `Error ${res.status}`);
       setDatos(data);
@@ -30,11 +83,18 @@ export default function VerificarForm() {
     }
   }
 
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!codigo.trim()) return;
+    buscarCodigo(codigo);
+  }
+
+  /* ── render ─────────────────────────────────────────────────────────────── */
   return (
     <div className="space-y-6">
       {/* Buscador */}
       <div className="card">
-        <form onSubmit={buscar} className="flex gap-3">
+        <form onSubmit={handleSubmit} className="flex gap-3">
           <input
             className="input flex-1"
             value={codigo}
@@ -58,10 +118,13 @@ export default function VerificarForm() {
       {/* Resultados */}
       {datos && (
         <div className="space-y-4">
-          {/* Certificado */}
+
+          {/* ── Certificado ──────────────────────────────────────────────── */}
           {datos.certificado ? (
             <div className={`card border-2 ${
-              datos.certificado.valido ? "border-verde-500 bg-verde-50" : "border-red-300 bg-red-50"
+              datos.certificado.valido
+                ? "border-verde-500 bg-verde-50"
+                : "border-red-300 bg-red-50"
             }`}>
               <div className="flex items-start gap-4">
                 <div className={`w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 ${
@@ -76,7 +139,7 @@ export default function VerificarForm() {
                 </div>
                 <div className="flex-1">
                   <p className={`text-lg font-bold ${
-                    datos.certificado.valido ? "text-verde-500" : "text-red-600"
+                    datos.certificado.valido ? "text-verde-600" : "text-red-600"
                   }`}>
                     {datos.certificado.valido ? "CERTIFICADO VÁLIDO" : "CERTIFICADO INVÁLIDO"}
                   </p>
@@ -91,6 +154,11 @@ export default function VerificarForm() {
                       <span><b>NFT:</b> #{datos.certificado.tokenId}</span>
                     )}
                   </div>
+                  {datos.certificado.aprobadoPor && (
+                    <p className="text-xs text-gray-400 mt-2">
+                      Certificado por: {datos.certificado.aprobadoPor}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -106,7 +174,7 @@ export default function VerificarForm() {
             </div>
           )}
 
-          {/* Info del lote */}
+          {/* ── Info del lote ─────────────────────────────────────────────── */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="card">
               <h3 className="font-semibold text-gray-800 mb-3 text-sm">Lote agrícola</h3>
@@ -117,7 +185,6 @@ export default function VerificarForm() {
                 <Item label="Eventos" value={`${datos.totalEventos} registros`} />
               </dl>
             </div>
-
             <div className="card">
               <h3 className="font-semibold text-gray-800 mb-3 text-sm">Predio y agricultor</h3>
               <dl className="space-y-2 text-sm">
@@ -128,45 +195,127 @@ export default function VerificarForm() {
             </div>
           </div>
 
-          {/* Blockchain */}
+          {/* ── Inspección BPA ────────────────────────────────────────────── */}
+          {datos.inspeccion && (
+            <div className="card">
+              <h3 className="font-semibold text-gray-800 mb-3 text-sm">Resultado inspección BPA</h3>
+              <div className="flex items-center gap-3 mb-3">
+                <span className={`text-sm font-bold px-3 py-1 rounded-full ${
+                  datos.inspeccion.resultado === "APROBADO"
+                    ? "bg-emerald-100 text-emerald-700"
+                    : "bg-red-100 text-red-700"
+                }`}>
+                  {datos.inspeccion.resultado ?? "—"}
+                </span>
+                {datos.inspeccion.puntajeBpa != null && (
+                  <span className="text-sm text-gray-600">
+                    Puntaje BPA: <b>{datos.inspeccion.puntajeBpa}/100</b>
+                  </span>
+                )}
+                {datos.inspeccion.inspector && (
+                  <span className="text-xs text-gray-400">Inspector: {datos.inspeccion.inspector}</span>
+                )}
+              </div>
+              {(datos.inspeccion.hallazgosCriticos != null ||
+                datos.inspeccion.hallazgosMayores != null ||
+                datos.inspeccion.hallazgosMenores != null) && (
+                <div className="flex gap-4 text-xs text-gray-600 mb-2">
+                  {datos.inspeccion.hallazgosCriticos != null && (
+                    <span className="text-red-600 font-medium">
+                      Críticos: {datos.inspeccion.hallazgosCriticos}
+                    </span>
+                  )}
+                  {datos.inspeccion.hallazgosMayores != null && (
+                    <span className="text-orange-600 font-medium">
+                      Mayores: {datos.inspeccion.hallazgosMayores}
+                    </span>
+                  )}
+                  {datos.inspeccion.hallazgosMenores != null && (
+                    <span className="text-yellow-600 font-medium">
+                      Menores: {datos.inspeccion.hallazgosMenores}
+                    </span>
+                  )}
+                </div>
+              )}
+              {datos.inspeccion.observaciones && (
+                <p className="text-xs text-gray-500 italic">{datos.inspeccion.observaciones}</p>
+              )}
+            </div>
+          )}
+
+          {/* ── Trazabilidad Blockchain ────────────────────────────────────── */}
           <div className="card">
-            <h3 className="font-semibold text-gray-800 mb-3 text-sm">Registro en Polygon Blockchain</h3>
-            <div className="flex items-center gap-3">
-              <div className={`w-3 h-3 rounded-full ${
-                datos.blockchain.registrado ? "bg-emerald-400" : "bg-gray-300"
-              }`} />
-              <span className="text-sm text-gray-700">
-                {datos.blockchain.registrado
-                  ? "Verificado en Polygon — datos inmutables"
-                  : "Pendiente de registro on-chain"}
+            <h3 className="font-semibold text-gray-800 mb-4 text-sm flex items-center gap-2">
+              <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M13.828 10.172a4 4 0 0 0-5.656 0l-4 4a4 4 0 1 0 5.656 5.656l1.102-1.101m-.758-4.899a4 4 0 0 0 5.656 0l4-4a4 4 0 0 0-5.656-5.656l-1.1 1.1" />
+              </svg>
+              Trazabilidad en Polygon Amoy
+            </h3>
+
+            <div className="space-y-3">
+              {/* Registro del lote */}
+              {datos.blockchain.txRegistro && (
+                <TxRow label="[Poly] Registro lote:" tx={datos.blockchain.txRegistro} />
+              )}
+              {datos.dataHash && (
+                <HashRow label="Hash datos lote:" hash={datos.dataHash} />
+              )}
+
+              {/* Campañas */}
+              {datos.campanas.map((c, i) => (
+                <div key={i} className="space-y-1.5">
+                  {c.txHash && (
+                    <TxRow label={`[Poly] Campaña ${c.nombre}:`} tx={c.txHash} />
+                  )}
+                  {c.campanaHash && (
+                    <HashRow label={`Hash campaña ${c.nombre}:`} hash={c.campanaHash} />
+                  )}
+                </div>
+              ))}
+
+              {/* Inspección */}
+              {datos.inspeccion?.txHash && (
+                <TxRow label="[Poly] Reporte BPA:" tx={datos.inspeccion.txHash} />
+              )}
+              {datos.inspeccion?.reporteHash && (
+                <HashRow label="Hash reporte BPA:" hash={datos.inspeccion.reporteHash} />
+              )}
+
+              {/* Certificado NFT */}
+              {datos.certificado?.txEmision && (
+                <TxRow label="[Poly] Certificado NFT:" tx={datos.certificado.txEmision} />
+              )}
+
+              {/* Sin datos blockchain */}
+              {!datos.blockchain.txRegistro &&
+                !datos.dataHash &&
+                datos.campanas.length === 0 &&
+                !datos.inspeccion?.txHash &&
+                !datos.certificado?.txEmision && (
+                <div className="flex items-center gap-2 text-sm text-gray-400">
+                  <Dot color="gray" />
+                  Pendiente de registro on-chain
+                </div>
+              )}
+            </div>
+
+            {/* Leyenda */}
+            <div className="flex gap-4 mt-4 pt-3 border-t border-gray-100">
+              <span className="flex items-center gap-1.5 text-[10px] text-gray-400">
+                <Dot color="purple" /> Transacción Polygon
+              </span>
+              <span className="flex items-center gap-1.5 text-[10px] text-gray-400">
+                <Dot color="yellow" /> Hash SHA-256
               </span>
             </div>
-            {datos.blockchain.loteIdHash && (
-              <p className="mt-2 text-[11px] font-mono text-gray-400 break-all">
-                Lote ID (on-chain): {datos.blockchain.loteIdHash}
-              </p>
-            )}
-            {datos.blockchain.explorerUrl && (
-              <a
-                href={datos.blockchain.explorerUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-2 inline-flex items-center gap-1 text-xs text-blue-500 hover:underline"
-              >
-                Ver en PolygonScan
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M10 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                </svg>
-              </a>
-            )}
           </div>
 
-          {/* Timeline de eventos */}
+          {/* ── Timeline de eventos ───────────────────────────────────────── */}
           {datos.eventos.length > 0 && (
             <div className="card">
               <h3 className="font-semibold text-gray-800 mb-4 text-sm">
-                Trazabilidad de producción
+                Historial de producción ({datos.eventos.length} eventos)
               </h3>
               <div className="relative">
                 <div className="absolute left-3.5 top-0 bottom-0 w-px bg-gray-200" />
@@ -188,18 +337,11 @@ export default function VerificarForm() {
                         {ev.descripcion && (
                           <p className="text-xs text-gray-500 mt-0.5">{ev.descripcion}</p>
                         )}
-                        <div className="flex items-center gap-1 mt-1">
-                          {ev.hashVerificado ? (
-                            <span className="text-[10px] text-emerald-500 flex items-center gap-1">
-                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16zm3.707-9.293a1 1 0 0 0-1.414-1.414L9 10.586 7.707 9.293a1 1 0 0 0-1.414 1.414l2 2a1 1 0 0 0 1.414 0l4-4z" />
-                              </svg>
-                              Integridad verificada
-                            </span>
-                          ) : (
-                            <span className="text-[10px] text-amber-500">Pendiente verificación</span>
-                          )}
-                        </div>
+                        <span className={`text-[10px] mt-0.5 ${
+                          ev.hashVerificado ? "text-emerald-500" : "text-amber-500"
+                        }`}>
+                          {ev.hashVerificado ? "✓ Integridad verificada" : "Pendiente verificación"}
+                        </span>
                       </div>
                     </div>
                   ))}
@@ -207,6 +349,7 @@ export default function VerificarForm() {
               </div>
             </div>
           )}
+
         </div>
       )}
     </div>
@@ -215,9 +358,9 @@ export default function VerificarForm() {
 
 function Item({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="flex justify-between">
-      <dt className="text-gray-400">{label}</dt>
-      <dd className={`text-gray-800 font-medium ${mono ? "font-mono text-xs" : ""}`}>{value}</dd>
+    <div className="flex justify-between gap-2">
+      <dt className="text-gray-400 flex-shrink-0">{label}</dt>
+      <dd className={`text-gray-800 font-medium text-right ${mono ? "font-mono text-xs" : ""}`}>{value}</dd>
     </div>
   );
 }

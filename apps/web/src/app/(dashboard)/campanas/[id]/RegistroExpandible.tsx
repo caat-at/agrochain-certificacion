@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { RegistrarAporteFaltante } from "./RegistrarAporteFaltante";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -304,7 +305,7 @@ export function RegistroExpandible({
   camposRequeridos,
   campanaId: _campanaId,
   codigoCampana,
-  campanaAbierta: _campanaAbierta,
+  campanaAbierta,
   tecnicos,
 }: {
   registro: RegistroPlanta;
@@ -508,6 +509,48 @@ export function RegistroExpandible({
               </div>
             </>
           )}
+
+          {/* Panel de posiciones faltantes — solo si PARCIAL, campaña abierta y hay técnicos */}
+          {registro.estado === "PARCIAL" && campanaAbierta && tecnicos.length > 0 && (() => {
+            const faltantes = tecnicos.filter((t) => !posicionesAportadas.has(t.posicion));
+            if (faltantes.length === 0) return null;
+            return (
+              <div className="mx-4 mb-4 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+                <p className="text-[11px] font-semibold text-amber-700 mb-2">
+                  Posiciones pendientes de sincronizar
+                </p>
+                <div className="space-y-3">
+                  {faltantes.map((t) => {
+                    let campos: string[] = [];
+                    try { campos = JSON.parse(t.camposAsignados); } catch { /* ignore */ }
+                    return (
+                      <div key={t.posicion}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="inline-flex items-center justify-center w-5 h-5 rounded text-[9px] font-bold bg-amber-400 text-white">
+                            P{t.posicion}
+                          </span>
+                          <span className="text-xs text-amber-800 font-medium">
+                            {t.tecnico.nombres} {t.tecnico.apellidos}
+                          </span>
+                          <span className="text-[10px] text-amber-500">
+                            ({campos.join(", ")})
+                          </span>
+                        </div>
+                        <RegistrarAporteFaltante
+                          campanaId={_campanaId}
+                          plantaId={registro.plantaId}
+                          codigoPlanta={registro.planta.codigoPlanta}
+                          tecnico={t.tecnico}
+                          posicion={t.posicion}
+                          camposAsignados={campos}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* contentHash del registro */}
           {registro.contentHash && (

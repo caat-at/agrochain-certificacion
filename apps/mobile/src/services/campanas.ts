@@ -192,6 +192,7 @@ export async function guardarAporteLocal(params: {
     id,
     campanaId:   params.campanaId,
     plantaId:    params.plantaId,
+    tecnicoId:   sesion.userId,
     posicion:    params.posicion,
     campos:      JSON.stringify(params.campos),
     fotoHash:    params.fotoHash ?? null,
@@ -225,7 +226,15 @@ export async function sincronizarAportes(): Promise<SyncAportesResultado> {
 
   for (const aporte of pendientes) {
     try {
-      const campos = JSON.parse(aporte.campos) as Record<string, unknown>;
+      let campos: Record<string, unknown>;
+      try {
+        campos = JSON.parse(aporte.campos) as Record<string, unknown>;
+      } catch {
+        resultado.errores.push(`P${aporte.posicion}: campos JSON inválido — "${aporte.campos}"`);
+        resultado.rechazados++;
+        await marcarAporteRechazado(aporte.id);
+        continue;
+      }
 
       const res = await fetch(
         `${sesion.apiUrl}/api/campanas/${aporte.campanaId}/registros/${aporte.plantaId}/aportes`,
@@ -242,6 +251,7 @@ export async function sincronizarAportes(): Promise<SyncAportesResultado> {
             latitud:     aporte.latitud ?? undefined,
             longitud:    aporte.longitud ?? undefined,
             contentHash: aporte.contentHash,
+            fechaAporte: aporte.fechaAporte,
           }),
         }
       );
@@ -250,20 +260,36 @@ export async function sincronizarAportes(): Promise<SyncAportesResultado> {
         await marcarAporteSincronizado(aporte.id);
         resultado.enviados++;
       } else {
-        const err = await res.json().catch(() => ({})) as { message?: string };
-        const motivo = err.message ?? `Error ${res.status}`;
-        // 409 = ya ingresado — marcar como sincronizado para no reintentar
+        const rawText = await res.text().catch(() => "");
+        console.log(`[sync] aporte P${aporte.posicion} → HTTP ${res.status} — ${rawText}`);
+        let motivo = `HTTP ${res.status}`;
+        try {
+          const parsed = JSON.parse(rawText) as { message?: string; error?: string };
+          motivo = parsed.message ?? parsed.error ?? rawText.substring(0, 120) ?? motivo;
+        } catch {
+          motivo = rawText.substring(0, 120) || motivo;
+        }
         if (res.status === 409) {
+          // Ya existe en el servidor — marcar como sincronizado para no reintentar
           await marcarAporteSincronizado(aporte.id);
           resultado.enviados++;
-        } else {
+        } else if (res.status === 401) {
+          // Token expirado — dejar pendiente, el usuario debe volver a iniciar sesión
+          resultado.errores.push(`P${aporte.posicion}: Sesión expirada — cierra sesión y vuelve a entrar`);
+        } else if (res.status === 400 || res.status === 403 || res.status === 404) {
+          // Error definitivo del servidor (datos inválidos, sin permisos, planta no encontrada)
+          // Marcar rechazado para que no se reintente indefinidamente
           await marcarAporteRechazado(aporte.id);
           resultado.rechazados++;
-          resultado.errores.push(`Aporte ${aporte.id}: ${motivo}`);
+          resultado.errores.push(`P${aporte.posicion}: ${motivo}`);
+        } else {
+          // Error temporal (500, red, etc.) — dejar en PENDIENTE para reintentar
+          resultado.errores.push(`P${aporte.posicion}: ${motivo} (se reintentará)`);
         }
       }
     } catch (err) {
-      resultado.errores.push(`Aporte ${aporte.id}: ${String(err)}`);
+      // Error de red — dejar en PENDIENTE para reintentar
+      resultado.errores.push(`P${aporte.posicion}: sin conexión (se reintentará)`);
     }
   }
 

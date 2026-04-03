@@ -32,12 +32,16 @@ const AsignarTecnicoSchema = z.object({
 });
 
 const AporteTecnicoSchema = z.object({
-  campos:      z.record(z.unknown()),
-  fotoHash:    z.string().optional(),
-  audioHash:   z.string().optional(),
-  latitud:     z.number().optional(),
-  longitud:    z.number().optional(),
-  contentHash: z.string(), // generado en la app móvil
+  campos:           z.record(z.unknown()),
+  fotoHash:         z.string().optional(),
+  audioHash:        z.string().optional(),
+  latitud:          z.number().optional(),
+  longitud:         z.number().optional(),
+  contentHash:      z.string(), // generado en la app móvil
+  fechaAporte:      z.string().optional(), // ISO timestamp del momento de captura en la app
+  // Solo para ADMIN — permite registrar en nombre de un técnico específico
+  tecnicoIdOverride: z.string().optional(),
+  posicionOverride:  z.number().int().min(1).max(4).optional(),
 });
 
 // ─── Helper: verificar cierre automático de campaña ──────────────────────────
@@ -170,7 +174,7 @@ export async function campanasRoutes(app: FastifyInstance) {
     const campana = await db.campana.findUnique({
       where: { id },
       include: {
-        lote:     { select: { codigoLote: true, especie: true, variedad: true } },
+        lote:     { select: { codigoLote: true, especie: true, variedad: true, txRegistro: true } },
         creador:  { select: { nombres: true, apellidos: true } },
         cerrador: { select: { nombres: true, apellidos: true } },
         tecnicos: {
@@ -387,7 +391,18 @@ export async function campanasRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { id: campanaId, plantaId } = request.params as { id: string; plantaId: string };
       const payload = (request as any).user as { sub: string; rol: string };
-      const body = AporteTecnicoSchema.parse(request.body);
+
+      if (!request.body || typeof request.body !== "object") {
+        request.log.warn({ body: request.body, headers: request.headers }, "POST aporte — body vacío o no-objeto");
+        return reply.status(400).send({ message: "Body vacío o inválido. Asegúrate de enviar Content-Type: application/json" });
+      }
+
+      const parseResult = AporteTecnicoSchema.safeParse(request.body);
+      if (!parseResult.success) {
+        const errMsg = parseResult.error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join(", ");
+        return reply.status(400).send({ message: `Datos inválidos: ${errMsg}` });
+      }
+      const body = parseResult.data;
 
       // 1. Verificar campaña ABIERTA
       const campana = await db.campana.findUnique({
@@ -400,11 +415,20 @@ export async function campanasRoutes(app: FastifyInstance) {
       }
 
       // 2. Verificar que el técnico tiene posición asignada en esta campaña
-      const asignacion = campana.tecnicos.find((t) => t.tecnicoId === payload.sub);
+      // ADMIN puede especificar tecnicoIdOverride + posicionOverride para registrar en nombre de un técnico
+      const tecnicoEfectivo = (payload.rol === "ADMIN" && body.tecnicoIdOverride)
+        ? body.tecnicoIdOverride
+        : payload.sub;
+      const asignacion = campana.tecnicos.find((t) => t.tecnicoId === tecnicoEfectivo);
       if (!asignacion && payload.rol !== "ADMIN") {
         return reply.status(403).send({ message: "No tienes posición asignada en esta campaña" });
       }
-      const posicion = asignacion?.posicion ?? 0;
+      if (!asignacion && payload.rol === "ADMIN" && !body.posicionOverride) {
+        return reply.status(400).send({ message: "El técnico no tiene posición asignada. Especifica posicionOverride." });
+      }
+      const posicion = (payload.rol === "ADMIN" && body.posicionOverride)
+        ? body.posicionOverride
+        : (asignacion?.posicion ?? 0);
 
       // 3. Verificar planta pertenece al lote
       const planta = await db.planta.findFirst({
@@ -421,11 +445,12 @@ export async function campanasRoutes(app: FastifyInstance) {
       const esElPrimero = !registro;
 
       if (!registro) {
-        // Calcular consecutivo: contar registros activos en esta campaña + 1
-        const totalRegistros = await db.registroPlanta.count({
-          where: { campanaId, estado: { not: "INVALIDADO" } },
+        // Calcular consecutivo: MAX(consecutivo) + 1 para evitar colisiones si se borran registros
+        const maxConsec = await db.registroPlanta.aggregate({
+          _max: { consecutivo: true },
+          where: { campanaId },
         });
-        const consecutivo = totalRegistros + 1;
+        const consecutivo = (maxConsec._max.consecutivo ?? 0) + 1;
 
         registro = await db.registroPlanta.create({
           data: {
@@ -447,47 +472,46 @@ export async function campanasRoutes(app: FastifyInstance) {
       }
 
       // 6. Verificar que este técnico no ya haya aportado en este registro
-      const aporteExistente = registro.aportes.find((a) => a.tecnicoId === payload.sub);
+      const aporteExistente = registro.aportes.find((a) => a.tecnicoId === tecnicoEfectivo);
       if (aporteExistente) {
         return reply.status(409).send({ message: "Ya registraste tu aporte para esta planta en esta campaña." });
       }
 
       // 7. Verificar contentHash del aporte (recalcular en servidor)
-      const fechaAporte = new Date().toISOString();
+      // Usar la fechaAporte enviada por la app (la misma que se usó al calcular el hash)
+      const fechaAporte = body.fechaAporte ?? new Date().toISOString();
       const contentHashEsperado = generarContentHashAporte({
         plantaId,
         campanaId,
-        tecnicoId:   payload.sub,
+        tecnicoId:   tecnicoEfectivo,
         posicion,
         campos:      body.campos as Record<string, unknown>,
         fotoHash:    body.fotoHash ?? null,
         audioHash:   body.audioHash ?? null,
         latitud:     body.latitud ?? null,
         longitud:    body.longitud ?? null,
-        fechaAporte: body.contentHash
-          ? fechaAporte // si viene contentHash lo verificamos con fecha del servidor
-          : fechaAporte,
+        fechaAporte,
       });
 
-      // Nota: la verificación exacta del contentHash requiere la misma fechaAporte
-      // que usó la app. El servidor guarda el contentHash de la app y lo reverifica
-      // en el endpoint verificar-integridad. Aquí guardamos el hash recibido.
       const contentHashFinal = body.contentHash;
+      const hashVerificado = contentHashEsperado === contentHashFinal;
 
       // 8. Guardar aporte
       await db.aporteTecnico.create({
         data: {
           registroPlantaId: registro.id,
           campanaId,
-          tecnicoId:   payload.sub,
+          tecnicoId:   tecnicoEfectivo,
           posicion,
           campos:      JSON.stringify(body.campos),
           fotoHash:    body.fotoHash ?? null,
           audioHash:   body.audioHash ?? null,
           contentHash: contentHashFinal,
+          hashVerificado,
+          hashRechazMotivo: hashVerificado ? null : "contentHash no coincide al recibir",
           latitud:     body.latitud ?? null,
           longitud:    body.longitud ?? null,
-          fechaAporte: new Date(),
+          fechaAporte: new Date(fechaAporte),
           syncEstado:  "SINCRONIZADO",
         },
       });
@@ -750,6 +774,63 @@ export async function campanasRoutes(app: FastifyInstance) {
     }
   );
 
+  // ── GET /api/campanas/movil/planta/:plantaId/aportes ─────────────────────
+  // App móvil: historial de aportes de campaña para una planta
+  app.get(
+    "/movil/planta/:plantaId/aportes",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
+      const { plantaId } = request.params as { plantaId: string };
+
+      const registros = await db.registroPlanta.findMany({
+        where: { plantaId, estado: { not: "INVALIDADO" } },
+        include: {
+          campana: { select: { id: true, nombre: true, codigo: true } },
+          aportes: {
+            select: {
+              id: true,
+              tecnicoId: true,
+              posicion: true,
+              campos: true,
+              fotoHash: true,
+              audioHash: true,
+              fechaAporte: true,
+              latitud: true,
+              longitud: true,
+              contentHash: true,
+              hashVerificado: true,
+            },
+            orderBy: { posicion: "asc" },
+          },
+        },
+        orderBy: { fechaEvento: "desc" },
+      });
+
+      return reply.send({
+        registros: registros.map((r) => ({
+          id:            r.id,
+          consecutivo:   r.consecutivo,
+          estado:        r.estado,
+          fechaEvento:   r.fechaEvento.toISOString(),
+          campana:       r.campana,
+          aportes: r.aportes.map((a) => ({
+            id:             a.id,
+            tecnicoId:      a.tecnicoId,
+            posicion:       a.posicion,
+            campos:         JSON.parse(a.campos as string),
+            fotoHash:       a.fotoHash ?? null,
+            audioHash:      a.audioHash ?? null,
+            fechaAporte:    a.fechaAporte.toISOString(),
+            latitud:        a.latitud ?? null,
+            longitud:       a.longitud ?? null,
+            contentHash:    a.contentHash,
+            hashVerificado: a.hashVerificado,
+          })),
+        })),
+      });
+    }
+  );
+
   // ── POST /api/campanas/:id/verificar-integridad ──────────────────────────
   // Reverifica todos los contentHash — detecta adulteraciones
   app.post(
@@ -757,6 +838,7 @@ export async function campanasRoutes(app: FastifyInstance) {
     { preHandler: [(app as any).authenticate] },
     async (request, reply) => {
       const { id: campanaId } = request.params as { id: string };
+      const payload = request.user as { sub: string };
 
       const campana = await db.campana.findUnique({
         where: { id: campanaId },
@@ -769,71 +851,270 @@ export async function campanasRoutes(app: FastifyInstance) {
       });
       if (!campana) return reply.status(404).send({ message: "Campaña no encontrada" });
 
+      const detallesRegistro: Array<{
+        registroId:    string;
+        plantaId:      string;
+        hashGuardado:  string;
+        hashCalculado: string;
+        resultado:     string;
+      }> = [];
+
       const adulteracionesDetectadas: Array<{
         registroId: string;
         plantaId:   string;
-        aporteId:   string;
-        tecnicoId:  string;
-        posicion:   number;
         motivo:     string;
       }> = [];
 
       for (const registro of campana.registros) {
-        for (const aporte of registro.aportes) {
-          const campos = JSON.parse(aporte.campos as string) as Record<string, unknown>;
+        // Solo verificar registros COMPLETOS — los demás no tienen contentHash de registro
+        if (registro.estado !== "COMPLETO" && registro.estado !== "ADULTERADO") continue;
+        if (!registro.contentHash) continue;
 
-          // Recalcular contentHash con los datos almacenados
-          const contentHashRecalculado = generarContentHashAporte({
-            plantaId:    registro.plantaId,
-            campanaId,
-            tecnicoId:   aporte.tecnicoId,
-            posicion:    aporte.posicion,
-            campos,
-            fotoHash:    aporte.fotoHash ?? null,
-            audioHash:   aporte.audioHash ?? null,
-            latitud:     aporte.latitud ?? null,
-            longitud:    aporte.longitud ?? null,
-            fechaAporte: aporte.fechaAporte.toISOString(),
+        // Recalcular el hash del registro con los aportes actuales
+        const aportesPorPosicion = [...registro.aportes].sort((a, b) => a.posicion - b.posicion);
+        const firmasPorCampo = aportesPorPosicion.map((a) => ({
+          campo: `posicion_${a.posicion}`,
+          firma: a.contentHash,
+        }));
+        const hashRecalculado = generarContentHashRegistro({
+          firmasAportes: firmasPorCampo,
+          plantaId:      registro.plantaId,
+          campanaId,
+        });
+
+        const ok = hashRecalculado === registro.contentHash;
+
+        detallesRegistro.push({
+          registroId:    registro.id,
+          plantaId:      registro.plantaId,
+          hashGuardado:  registro.contentHash,
+          hashCalculado: hashRecalculado,
+          resultado:     ok ? "OK" : "FALLA",
+        });
+
+        if (!ok) {
+          adulteracionesDetectadas.push({
+            registroId: registro.id,
+            plantaId:   registro.plantaId,
+            motivo:     `Hash guardado: ${registro.contentHash} | Recalculado: ${hashRecalculado}`,
           });
-
-          if (contentHashRecalculado !== aporte.contentHash) {
-            adulteracionesDetectadas.push({
-              registroId: registro.id,
-              plantaId:   registro.plantaId,
-              aporteId:   aporte.id,
-              tecnicoId:  aporte.tecnicoId,
-              posicion:   aporte.posicion,
-              motivo:     `contentHash no coincide. Guardado: ${aporte.contentHash} | Recalculado: ${contentHashRecalculado}`,
-            });
-
-            await db.aporteTecnico.update({
-              where: { id: aporte.id },
-              data:  { hashVerificado: false, hashRechazMotivo: "contentHash no coincide al reverificar" },
-            });
-            await db.registroPlanta.update({
-              where: { id: registro.id },
-              data: {
-                estado:                "ADULTERADO",
-                adulteradoDetectadoEn: new Date(),
-                adulteradoDetectadoPor: "sistema",
-              },
-            });
-          } else {
-            await db.aporteTecnico.update({
-              where: { id: aporte.id },
-              data:  { hashVerificado: true, hashRechazMotivo: null },
-            });
-          }
+          await db.registroPlanta.update({
+            where: { id: registro.id },
+            data: {
+              estado:                 "ADULTERADO",
+              adulteradoDetectadoEn:  new Date(),
+              adulteradoDetectadoPor: "sistema",
+            },
+          });
         }
       }
 
+      // Guardar historial de verificación
+      const verificacion = await db.verificacionIntegridad.create({
+        data: {
+          campanaId,
+          ejecutadoPorId: payload.sub,
+          totalRegistros: detallesRegistro.length,
+          aprobados:      detallesRegistro.filter((d) => d.resultado === "OK").length,
+          adulterados:    detallesRegistro.filter((d) => d.resultado === "FALLA").length,
+          ok:             adulteracionesDetectadas.length === 0,
+          detalles: {
+            create: detallesRegistro,
+          },
+        },
+        include: { detalles: true },
+      });
+
       return {
-        ok: adulteracionesDetectadas.length === 0,
+        ok:                      verificacion.ok,
         adulteracionesDetectadas,
-        mensaje: adulteracionesDetectadas.length === 0
-          ? "Integridad verificada. Todos los aportes son válidos."
+        mensaje: verificacion.ok
+          ? "Integridad verificada. Todos los registros son válidos."
           : `Se detectaron ${adulteracionesDetectadas.length} adulteración(es).`,
+        verificacionId:    verificacion.id,
+        fechaVerificacion: verificacion.fechaVerificacion,
       };
+    }
+  );
+
+  // ── GET /api/campanas/:id/verificaciones ──────────────────────────────────
+  // Historial de verificaciones de integridad de una campaña
+  app.get(
+    "/:id/verificaciones",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
+      const { id: campanaId } = request.params as { id: string };
+
+      const verificaciones = await db.verificacionIntegridad.findMany({
+        where: { campanaId },
+        orderBy: { fechaVerificacion: "desc" },
+        include: {
+          ejecutadoPor: { select: { nombres: true, apellidos: true } },
+          detalles: { orderBy: { plantaId: "asc" } },
+        },
+      });
+
+      // Enriquecer detalles con el consecutivo del registro
+      const registros = await db.registroPlanta.findMany({
+        where: { campanaId },
+        select: { id: true, consecutivo: true, campana: { select: { codigo: true } } },
+      });
+      const regMap = new Map(registros.map((r) => [r.id, r]));
+
+      const resultado = verificaciones.map((v) => ({
+        ...v,
+        detalles: v.detalles.map((d) => {
+          const reg = regMap.get(d.registroId);
+          const codigo = reg?.campana?.codigo;
+          const consec = reg?.consecutivo;
+          const etiqueta = consec != null
+            ? (codigo ? `${codigo}-${String(consec).padStart(3, "0")}` : `REG-${String(consec).padStart(3, "0")}`)
+            : null;
+          return { ...d, etiquetaRegistro: etiqueta };
+        }),
+      }));
+
+      return { verificaciones: resultado };
+    }
+  );
+
+  // ── POST /api/campanas/:id/verificar-hash-campana ─────────────────────────
+  // Recalcula el campanaHash a partir de los registros COMPLETO actuales
+  // y lo compara contra el hash sellado al momento del cierre.
+  app.post(
+    "/:id/verificar-hash-campana",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
+      const { id: campanaId } = request.params as { id: string };
+      const payload = request.user as { sub: string };
+
+      const campana = await db.campana.findUnique({
+        where: { id: campanaId },
+        select: {
+          campanaHash: true,
+          estado:      true,
+          registros: {
+            where:   { estado: "COMPLETO" },
+            select:  { plantaId: true, contentHash: true },
+            orderBy: { plantaId: "asc" },
+          },
+        },
+      });
+
+      if (!campana) return reply.status(404).send({ message: "Campaña no encontrada" });
+      if (!campana.campanaHash) {
+        return reply.status(400).send({
+          message: "La campaña no tiene campanaHash — debe estar CERRADA con registros completos.",
+        });
+      }
+
+      const registrosCompletos = campana.registros.filter((r) => r.contentHash);
+      const hashRecalculado = generarHashCampana({
+        campanaId,
+        registros: registrosCompletos.map((r) => ({
+          plantaId:    r.plantaId,
+          contentHash: r.contentHash!,
+        })),
+      });
+
+      const ok = hashRecalculado === campana.campanaHash;
+
+      // Guardar en historial
+      const verificacion = await db.verificacionHashCampana.create({
+        data: {
+          campanaId,
+          ejecutadoPorId: payload.sub,
+          ok,
+          hashGuardado:   campana.campanaHash,
+          hashRecalculado,
+          totalRegistros: registrosCompletos.length,
+        },
+      });
+
+      return {
+        ok,
+        hashGuardado:      campana.campanaHash,
+        hashRecalculado,
+        totalRegistros:    registrosCompletos.length,
+        fechaVerificacion: verificacion.fechaVerificacion,
+        mensaje: ok
+          ? `Hash de campaña válido — ${registrosCompletos.length} registro(s) incluidos en el sello.`
+          : "El hash de campaña NO coincide — los registros pueden haber sido modificados después del cierre.",
+      };
+    }
+  );
+
+  // ── GET /api/campanas/:id/historial-hash-campana ──────────────────────────
+  app.get(
+    "/:id/historial-hash-campana",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
+      const { id: campanaId } = request.params as { id: string };
+
+      const historial = await db.verificacionHashCampana.findMany({
+        where:   { campanaId },
+        orderBy: { fechaVerificacion: "desc" },
+        include: { ejecutadoPor: { select: { nombres: true, apellidos: true } } },
+      });
+
+      return { historial };
+    }
+  );
+
+  // ── POST /api/campanas/:id/anclar-blockchain ──────────────────────────────
+  // Ancla (o re-ancla) el campanaHash en Polygon via LoteRegistry.registrarEvento.
+  // Útil cuando el cierre ocurrió sin conexión y txHash quedó vacío.
+  app.post(
+    "/:id/anclar-blockchain",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
+      const { id: campanaId } = request.params as { id: string };
+      const payload = request.user as { sub: string; rol: string };
+
+      if (payload.rol !== "ADMIN") {
+        return reply.status(403).send({ message: "Solo el ADMIN puede anclar en blockchain." });
+      }
+
+      const campana = await db.campana.findUnique({
+        where:  { id: campanaId },
+        select: { campanaHash: true, estado: true, loteId: true, txHash: true },
+      });
+
+      if (!campana) return reply.status(404).send({ message: "Campaña no encontrada" });
+      if (campana.estado !== "CERRADA") {
+        return reply.status(400).send({ message: "La campaña debe estar CERRADA para anclar en blockchain." });
+      }
+      if (!campana.campanaHash) {
+        return reply.status(400).send({ message: "La campaña no tiene campanaHash generado." });
+      }
+      if (!isConfigured()) {
+        return reply.status(503).send({ message: "Blockchain no configurado en el servidor." });
+      }
+
+      try {
+        const result = await registrarEventoOnChain(
+          campana.loteId,
+          `CAMPANA_CERRADA:${campanaId}`,
+          campana.campanaHash,
+        );
+
+        await db.campana.update({
+          where: { id: campanaId },
+          data:  { txHash: result.txHash },
+        });
+
+        return {
+          ok:          true,
+          txHash:      result.txHash,
+          blockNumber: result.blockNumber,
+          gasUsed:     result.gasUsed,
+          mensaje:     `Hash de campaña anclado en Polygon — bloque ${result.blockNumber}.`,
+        };
+      } catch (err) {
+        return reply.status(502).send({
+          message: `Error al anclar en blockchain: ${String(err)}`,
+        });
+      }
     }
   );
 }

@@ -3,10 +3,11 @@
  * Conecta la API con los contratos LoteRegistry y CertificadoNFT en Polygon Amoy.
  *
  * Flujo:
- *  1. registrarLoteOnChain  — llama LoteRegistry.registrarLote(loteId, dataHash)
- *  2. registrarEventoOnChain — llama LoteRegistry.registrarEvento(loteId, tipo, hash)
- *  3. emitirCertificadoOnChain — llama CertificadoNFT.emitirCertificado(...)
- *  4. revocarCertificadoOnChain — llama CertificadoNFT.revocarCertificado(tokenId, hash)
+ *  1. registrarLoteOnChain        — LoteRegistry.registrarLote(loteId, dataHash)
+ *  2. registrarEventoOnChain      — LoteRegistry.registrarEvento(loteId, tipo, hash)
+ *  3. finalizarInspeccionOnChain  — LoteRegistry.solicitarInspeccion + iniciarInspeccion + finalizarInspeccion
+ *  4. emitirCertificadoOnChain    — CertificadoNFT.emitirCertificado(...)
+ *  5. revocarCertificadoOnChain   — CertificadoNFT.revocarCertificado(tokenId, hash)
  */
 import { ethers } from "ethers";
 
@@ -15,7 +16,10 @@ import { ethers } from "ethers";
 const LOTE_REGISTRY_ABI = [
   "function registrarLote(bytes32 loteId, bytes32 dataHash) external",
   "function registrarEvento(bytes32 loteId, string calldata tipoEvento, bytes32 evidenciaHash) external",
-  "function lotes(bytes32) external view returns (bytes32 dataHash, address agricultor, uint8 estado, uint256 timestamp)",
+  "function solicitarInspeccion(bytes32 loteId) external",
+  "function iniciarInspeccion(bytes32 loteId) external",
+  "function registrarResultadoInspeccion(bytes32 loteId, bool aprobado, bytes32 reporteHash) external",
+  "function lotes(bytes32) external view returns (bytes32 dataHash, address agricultor, address certificadora, uint8 estado, uint256 creadoEn, uint256 actualizadoEn, bool existe)",
   "function verificarIntegridad(bytes32 loteId, bytes32 hashAVerificar) external view returns (bool)",
   "event LoteRegistrado(bytes32 indexed loteId, address indexed agricultor, bytes32 dataHash, uint256 timestamp)",
   "event EventoRegistrado(bytes32 indexed loteId, string tipoEvento, bytes32 evidenciaHash, address registradoPor, uint256 timestamp)",
@@ -246,6 +250,64 @@ export async function verificarConexion(): Promise<{ ok: boolean; red?: string; 
   } catch (err) {
     return { ok: false, error: String(err) };
   }
+}
+
+/**
+ * Ejecuta el flujo completo de inspección on-chain:
+ *   solicitarInspeccion → iniciarInspeccion → finalizarInspeccion
+ * El backend actúa como agricultor e inspector (roles asignados en setup-roles).
+ *
+ * @param loteId      ID interno del lote
+ * @param aprobado    true = COSECHADO, false = RECHAZADO
+ * @param reporteHash hex sin 0x del hash del reporte
+ */
+export async function finalizarInspeccionOnChain(
+  loteId:      string,
+  aprobado:    boolean,
+  reporteHash: string,
+): Promise<TxResult> {
+  const { loteRegistry } = getContracts();
+  const loteIdBytes  = idToBytes32(loteId);
+  const reporteBytes = toBytes32(reporteHash);
+
+  // Verificar estado actual del lote on-chain
+  // Enum: 0=REGISTRADO,1=EN_PRODUCCION,2=COSECHADO,3=INSPECCION_SOLICITADA,4=EN_INSPECCION,5=CERTIFICADO,6=RECHAZADO,7=REVOCADO
+  const loteData     = await loteRegistry.lotes(loteIdBytes);
+  const estadoActual = Number(loteData[3]);
+
+  // Estados finales: no se puede anclar
+  // 5=CERTIFICADO, 6=RECHAZADO, 7=REVOCADO
+  if (estadoActual >= 5) {
+    throw new Error(`Estado on-chain inválido para inspección: ${estadoActual}. El lote ya fue inspeccionado o certificado en Polygon.`);
+  }
+
+  // REGISTRADO(0) o EN_PRODUCCION(1) o COSECHADO(2) → solicitar inspección
+  if (estadoActual <= 2) {
+    const tx1 = await loteRegistry.solicitarInspeccion(loteIdBytes);
+    await tx1.wait(1);
+  }
+
+  // INSPECCION_SOLICITADA(3) → iniciar inspección
+  if (estadoActual <= 3) {
+    const tx2 = await loteRegistry.iniciarInspeccion(loteIdBytes);
+    await tx2.wait(1);
+  }
+
+  // EN_INSPECCION(4) → registrar resultado
+  const tx: ethers.TransactionResponse = await loteRegistry.registrarResultadoInspeccion(
+    loteIdBytes, aprobado, reporteBytes,
+  );
+  const receipt = await tx.wait(1);
+
+  if (!receipt || receipt.status !== 1) {
+    throw new Error(`TX revertida: ${tx.hash}`);
+  }
+
+  return {
+    txHash:      receipt.hash,
+    blockNumber: receipt.blockNumber,
+    gasUsed:     receipt.gasUsed.toString(),
+  };
 }
 
 export { idToBytes32, toBytes32, isConfigured };

@@ -246,6 +246,49 @@ export async function cargarPrediosDesdeServidor(): Promise<PredioApi[]> {
   return data.predios;
 }
 
+// ── APORTES DE CAMPAÑA DESDE SERVIDOR ────────────────────────────────────────
+
+export interface AporteCampanaApi {
+  id:             string;
+  tecnicoId:      string;
+  posicion:       number;
+  campos:         Record<string, unknown>;
+  fotoHash:       string | null;
+  audioHash:      string | null;
+  fechaAporte:    string;
+  latitud:        number | null;
+  longitud:       number | null;
+  contentHash:    string;
+  hashVerificado: boolean | null;
+}
+
+export interface RegistroCampanaApi {
+  id:          string;
+  consecutivo: number;
+  estado:      string;
+  fechaEvento: string;
+  campana: {
+    id:     string;
+    nombre: string;
+    codigo: string | null;
+  };
+  aportes: AporteCampanaApi[];
+}
+
+export async function cargarAportesCampanaDesdeServidor(plantaId: string): Promise<RegistroCampanaApi[]> {
+  const sesion = await obtenerSesion();
+  if (!sesion) throw new Error("No hay sesión activa");
+
+  const response = await fetch(
+    `${sesion.apiUrl}/api/campanas/movil/planta/${plantaId}/aportes`,
+    { headers: { Authorization: `Bearer ${sesion.token}` } }
+  );
+
+  if (!response.ok) throw new Error(`Error cargando aportes campaña: ${response.status}`);
+  const data = await response.json() as { registros: RegistroCampanaApi[] };
+  return data.registros ?? [];
+}
+
 // ── EVENTOS DESDE SERVIDOR ────────────────────────────────────────────────────
 
 export interface EventoApi {

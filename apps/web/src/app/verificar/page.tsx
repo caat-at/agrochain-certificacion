@@ -1,4 +1,5 @@
 export const dynamic = "force-dynamic";
+import { Suspense } from "react";
 import VerificarForm from "./VerificarForm";
 
 export default function VerificarPage() {
@@ -31,7 +32,9 @@ export default function VerificarPage() {
           </p>
         </div>
 
-        <VerificarForm />
+        <Suspense>
+          <VerificarForm />
+        </Suspense>
       </main>
 
       <footer className="text-center py-8 text-xs text-gray-400">

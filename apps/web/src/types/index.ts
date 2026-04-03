@@ -93,6 +93,7 @@ export interface VerificacionPublica {
   especie: string;
   variedad: string | null;
   estado: EstadoLote;
+  dataHash: string | null;
   predio: {
     nombre: string;
     municipio: string;
@@ -108,10 +109,28 @@ export interface VerificacionPublica {
     descripcion: string;
     hashVerificado: boolean;
   }>;
+  campanas: Array<{
+    nombre: string;
+    campanaHash: string | null;
+    txHash: string | null;
+    fechaCierre: string | null;
+  }>;
+  inspeccion: {
+    resultado: string | null;
+    puntajeBpa: number | null;
+    hallazgosCriticos: number | null;
+    hallazgosMayores: number | null;
+    hallazgosMenores: number | null;
+    observaciones: string | null;
+    reporteHash: string | null;
+    txHash: string | null;
+    fechaRealizada: string | null;
+    inspector: string | null;
+  } | null;
   blockchain: {
     registrado: boolean;
     loteIdHash: string | null;
-    txHash: string | null;
+    txRegistro: string | null;
     explorerUrl: string | null;
   };
   certificado: {
@@ -121,5 +140,8 @@ export interface VerificacionPublica {
     fechaVencimiento: string;
     valido: boolean;
     tokenId: number | null;
+    txEmision: string | null;
+    ipfsUri: string | null;
+    aprobadoPor: string | null;
   } | null;
 }

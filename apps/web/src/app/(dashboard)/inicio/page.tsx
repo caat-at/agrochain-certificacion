@@ -313,10 +313,10 @@ export default async function InicioDashboard() {
           )}
         </div>
 
-        {/* Últimos eventos de campo */}
+        {/* Registro de actividades agrícolas */}
         <div className="card">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold text-gray-800">Últimos eventos de campo</h2>
+            <h2 className="font-semibold text-gray-800">Registro de actividades agrícolas</h2>
             <Link href="/lotes" className="text-xs text-verde-500 hover:text-verde-600 font-medium">
               Ver lotes →
             </Link>

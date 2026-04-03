@@ -8,7 +8,7 @@ import { useSesion } from "../../src/store/sesionStore";
 import { login } from "../../src/services/sync";
 
 const VERDE = "#1a7f4b";
-const API_DEFAULT = "http://192.168.0.74:3001"; // IP local del servidor
+const API_DEFAULT = "http://192.168.0.24:3001"; // IP local del servidor
 
 export default function LoginScreen() {
   const { iniciarSesion } = useSesion();

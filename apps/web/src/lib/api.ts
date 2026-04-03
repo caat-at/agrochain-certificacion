@@ -23,9 +23,12 @@ export async function apiFetch<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const token = await getToken();
+  const extraHeaders = (options.headers ?? {}) as Record<string, string>;
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(options.headers as Record<string, string>),
+    ...("body" in options && options.body !== undefined
+      ? { "Content-Type": "application/json" }
+      : {}),
+    ...extraHeaders,
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
 

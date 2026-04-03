@@ -151,6 +151,7 @@ export async function inicializarDB(): Promise<void> {
       id               TEXT PRIMARY KEY,
       campanaId        TEXT NOT NULL,
       plantaId         TEXT NOT NULL,
+      tecnicoId        TEXT NOT NULL DEFAULT '',  -- id del técnico que registró el aporte
       posicion         INTEGER NOT NULL DEFAULT 0,  -- posición del técnico (1-4)
       campos           TEXT NOT NULL DEFAULT '{}',
       fotoHash         TEXT,          -- SHA256 de su foto
@@ -222,6 +223,7 @@ export async function inicializarDB(): Promise<void> {
     "ALTER TABLE aportes_pendientes ADD COLUMN audioUri TEXT",
     "ALTER TABLE aportes_pendientes ADD COLUMN contentHash TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE aportes_pendientes ADD COLUMN fechaAporte TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE aportes_pendientes ADD COLUMN tecnicoId TEXT NOT NULL DEFAULT ''",
   ];
   for (const sql of migCampanas) {
     try { await db.runAsync(sql); } catch {}
@@ -419,6 +421,17 @@ export async function upsertPlanta(planta: PlantaLocal): Promise<void> {
   await db.runAsync("PRAGMA foreign_keys = ON");
 }
 
+export async function eliminarPlantasHuerfanas(loteId: string, idsActivos: string[]): Promise<number> {
+  const db = getDb();
+  if (idsActivos.length === 0) return 0;
+  const placeholders = idsActivos.map(() => "?").join(",");
+  const result = await db.runAsync(
+    `DELETE FROM plantas WHERE loteId = ? AND id NOT IN (${placeholders})`,
+    [loteId, ...idsActivos]
+  );
+  return result.changes;
+}
+
 export async function listarPlantas(loteId: string): Promise<PlantaLocal[]> {
   const db = getDb();
   return db.getAllAsync<PlantaLocal>(
@@ -604,6 +617,7 @@ export interface AportePendiente {
   id: string;
   campanaId: string;
   plantaId: string;
+  tecnicoId: string;
   posicion: number;
   campos: string;       // JSON object string
   fotoHash: string | null;
@@ -622,11 +636,11 @@ export async function guardarAporte(aporte: AportePendiente): Promise<void> {
   const db = getDb();
   await db.runAsync(
     `INSERT OR REPLACE INTO aportes_pendientes
-      (id, campanaId, plantaId, posicion, campos, fotoHash, fotoUri, audioHash, audioUri,
+      (id, campanaId, plantaId, tecnicoId, posicion, campos, fotoHash, fotoUri, audioHash, audioUri,
        contentHash, latitud, longitud, fechaAporte, syncEstado, creadoEn)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
-      aporte.id, aporte.campanaId, aporte.plantaId, aporte.posicion,
+      aporte.id, aporte.campanaId, aporte.plantaId, aporte.tecnicoId, aporte.posicion,
       aporte.campos,
       aporte.fotoHash ?? null, aporte.fotoUri ?? null,
       aporte.audioHash ?? null, aporte.audioUri ?? null,
@@ -639,8 +653,9 @@ export async function guardarAporte(aporte: AportePendiente): Promise<void> {
 
 export async function listarAportesPendientes(): Promise<AportePendiente[]> {
   const db = getDb();
+  // Incluye PENDIENTE y RECHAZADO para que el usuario pueda verlos y limpiarlos
   return db.getAllAsync<AportePendiente>(
-    "SELECT * FROM aportes_pendientes WHERE syncEstado = 'PENDIENTE' ORDER BY creadoEn ASC"
+    "SELECT * FROM aportes_pendientes WHERE syncEstado IN ('PENDIENTE','RECHAZADO') ORDER BY creadoEn ASC"
   );
 }
 
@@ -660,12 +675,91 @@ export async function marcarAporteRechazado(id: string, motivo?: string): Promis
   );
 }
 
+export async function reintentarAporteRechazado(id: string): Promise<void> {
+  const db = getDb();
+  await db.runAsync(
+    "UPDATE aportes_pendientes SET syncEstado = 'PENDIENTE' WHERE id = ? AND syncEstado = 'RECHAZADO'",
+    [id]
+  );
+}
+
+export async function limpiarAportesRechazados(): Promise<number> {
+  const db = getDb();
+  const result = await db.runAsync(
+    "DELETE FROM aportes_pendientes WHERE syncEstado = 'RECHAZADO'"
+  );
+  return result.changes;
+}
+
+export async function limpiarTodosAportesDeCampana(campanaId: string): Promise<number> {
+  const db = getDb();
+  const result = await db.runAsync(
+    "DELETE FROM aportes_pendientes WHERE campanaId = ?",
+    [campanaId]
+  );
+  return result.changes;
+}
+
+export async function limpiarTodosAportesLocales(): Promise<number> {
+  const db = getDb();
+  // Solo elimina PENDIENTE y RECHAZADO — los SINCRONIZADOS (ya en servidor) no se tocan
+  const result = await db.runAsync(
+    "DELETE FROM aportes_pendientes WHERE syncEstado IN ('PENDIENTE','RECHAZADO')"
+  );
+  return result.changes;
+}
+
 export async function contarAportesPendientes(): Promise<number> {
   const db = getDb();
   const row = await db.getFirstAsync<{ cnt: number }>(
     "SELECT COUNT(*) as cnt FROM aportes_pendientes WHERE syncEstado = 'PENDIENTE'"
   );
   return row?.cnt ?? 0;
+}
+
+export interface ContadoresAportes {
+  pendientes: number;
+  rechazados: number;
+  sincronizados: number;
+  total: number;
+  porPosicion: Record<number, number>; // posicion → solo PENDIENTE+RECHAZADO (borrables)
+}
+
+export async function obtenerContadoresAportes(): Promise<ContadoresAportes> {
+  const db = getDb();
+  const rows = await db.getAllAsync<{ syncEstado: string; posicion: number; cnt: number }>(
+    "SELECT syncEstado, posicion, COUNT(*) as cnt FROM aportes_pendientes GROUP BY syncEstado, posicion"
+  );
+  const contadores: ContadoresAportes = { pendientes: 0, rechazados: 0, sincronizados: 0, total: 0, porPosicion: {} };
+  for (const row of rows) {
+    if (row.syncEstado === "PENDIENTE")    contadores.pendientes    += row.cnt;
+    if (row.syncEstado === "RECHAZADO")    contadores.rechazados    += row.cnt;
+    if (row.syncEstado === "SINCRONIZADO") contadores.sincronizados += row.cnt;
+    // total y porPosicion solo cuentan los borrables (PENDIENTE + RECHAZADO)
+    if (row.syncEstado !== "SINCRONIZADO") {
+      contadores.total += row.cnt;
+      contadores.porPosicion[row.posicion] = (contadores.porPosicion[row.posicion] ?? 0) + row.cnt;
+    }
+  }
+  return contadores;
+}
+
+export async function contarEventosRechazados(): Promise<number> {
+  const db = getDb();
+  const row = await db.getFirstAsync<{ cnt: number }>(
+    "SELECT COUNT(*) as cnt FROM eventos WHERE syncEstado = 'RECHAZADO'"
+  );
+  return row?.cnt ?? 0;
+}
+
+export async function limpiarAportesPorPosicion(posicion: number): Promise<number> {
+  const db = getDb();
+  // Solo elimina PENDIENTE y RECHAZADO — los SINCRONIZADOS (ya en servidor) no se tocan
+  const result = await db.runAsync(
+    "DELETE FROM aportes_pendientes WHERE posicion = ? AND syncEstado IN ('PENDIENTE','RECHAZADO')",
+    [posicion]
+  );
+  return result.changes;
 }
 
 export async function listarAportesDeCampanaPlanta(
@@ -679,20 +773,63 @@ export async function listarAportesDeCampanaPlanta(
   );
 }
 
+export async function listarAportesDeCampana(
+  campanaId: string
+): Promise<AportePendiente[]> {
+  const db = getDb();
+  return db.getAllAsync<AportePendiente>(
+    "SELECT * FROM aportes_pendientes WHERE campanaId = ? AND syncEstado != 'RECHAZADO' ORDER BY creadoEn ASC",
+    [campanaId]
+  );
+}
+
+export async function listarAportesPorPlanta(
+  plantaId: string
+): Promise<AportePendiente[]> {
+  const db = getDb();
+  return db.getAllAsync<AportePendiente>(
+    "SELECT * FROM aportes_pendientes WHERE plantaId = ? ORDER BY creadoEn DESC",
+    [plantaId]
+  );
+}
+
 /**
  * Verifica si el técnico ya tiene un aporte guardado localmente
- * para una planta+campaña específica (sin importar syncEstado).
+ * para una planta+campaña+técnico específico (sin importar syncEstado).
  * Previene doble registro cuando el aporte aún no se ha sincronizado.
+ * Filtra por tecnicoId para que T2 no quede bloqueado por el aporte de T1.
  */
 export async function yaAporteLocalExiste(
   campanaId: string,
-  plantaId: string
+  plantaId: string,
+  tecnicoId: string
 ): Promise<boolean> {
   const db = getDb();
   const row = await db.getFirstAsync<{ cnt: number }>(
     `SELECT COUNT(*) as cnt FROM aportes_pendientes
-     WHERE campanaId = ? AND plantaId = ? AND syncEstado != 'RECHAZADO'`,
-    [campanaId, plantaId]
+     WHERE campanaId = ? AND plantaId = ? AND tecnicoId = ? AND syncEstado != 'RECHAZADO'`,
+    [campanaId, plantaId, tecnicoId]
   );
   return (row?.cnt ?? 0) > 0;
+}
+
+/**
+ * Retorna el syncEstado del aporte existente para una planta+campaña+técnico.
+ * null si no existe (o fue rechazado).
+ * Filtra por tecnicoId para no mostrar el estado del aporte de otro técnico.
+ */
+export async function obtenerSyncEstadoAporte(
+  campanaId: string,
+  plantaId: string,
+  tecnicoId: string
+): Promise<"PENDIENTE" | "SINCRONIZADO" | null> {
+  const db = getDb();
+  const row = await db.getFirstAsync<{ syncEstado: string }>(
+    `SELECT syncEstado FROM aportes_pendientes
+     WHERE campanaId = ? AND plantaId = ? AND tecnicoId = ? AND syncEstado != 'RECHAZADO'
+     ORDER BY creadoEn DESC LIMIT 1`,
+    [campanaId, plantaId, tecnicoId]
+  );
+  if (!row) return null;
+  return row.syncEstado === "SINCRONIZADO" ? "SINCRONIZADO" : "PENDIENTE";
 }

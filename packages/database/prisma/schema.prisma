@@ -192,7 +192,9 @@ model Usuario {
   campanasCreadas  Campana[]             @relation("CampanaCreada")
   campanasCerradas Campana[]             @relation("CampanaCerrada")
   aportesTecnico   AporteTecnico[]
-  posicionesCampana CampanaTecnico[]
+  posicionesCampana  CampanaTecnico[]
+  verificaciones          VerificacionIntegridad[]
+  verificacionesHashCampana VerificacionHashCampana[]
 
   @@map("usuarios")
 }
@@ -759,6 +761,8 @@ model Campana {
   cerrador       Usuario?       @relation("CampanaCerrada", fields: [cerradaPor], references: [id])
   registros      RegistroPlanta[]
   tecnicos       CampanaTecnico[]
+  verificaciones     VerificacionIntegridad[]
+  verificacionesHash VerificacionHashCampana[]
 
   @@map("campanas")
 }
@@ -867,4 +871,60 @@ model AporteTecnico {
   // Un aporte por técnico por registro
   @@unique([registroPlantaId, tecnicoId])
   @@map("aportes_tecnicos")
+}
+
+// =============================================================================
+// HISTORIAL DE VERIFICACIONES DE INTEGRIDAD
+// =============================================================================
+
+model VerificacionIntegridad {
+  id                String    @id @default(cuid())
+  campanaId         String
+  ejecutadoPorId    String
+  fechaVerificacion DateTime  @default(now())
+
+  // Resumen
+  totalRegistros    Int
+  aprobados         Int
+  adulterados       Int
+  ok                Boolean   // true si todos los hashes de registro coincidieron
+
+  // Relaciones
+  campana           Campana   @relation(fields: [campanaId], references: [id])
+  ejecutadoPor      Usuario   @relation(fields: [ejecutadoPorId], references: [id])
+  detalles          VerificacionRegistroDetalle[]
+
+  @@map("verificaciones_integridad")
+}
+
+model VerificacionRegistroDetalle {
+  id               String   @id @default(cuid())
+  verificacionId   String
+  registroId       String
+  plantaId         String
+  hashGuardado     String   // contentHash guardado en RegistroPlanta
+  hashCalculado    String   // contentHash recalculado con los aportes actuales
+  resultado        String   // "OK" | "FALLA" | "SIN_HASH"
+
+  // Relaciones
+  verificacion     VerificacionIntegridad @relation(fields: [verificacionId], references: [id])
+
+  @@map("verificaciones_registro_detalle")
+}
+
+// Historial de verificaciones del hash de campaña (nivel 3 — sello final)
+model VerificacionHashCampana {
+  id                String   @id @default(cuid())
+  campanaId         String
+  ejecutadoPorId    String
+  fechaVerificacion DateTime @default(now())
+  ok                Boolean
+  hashGuardado      String   // campanaHash sellado al cierre
+  hashRecalculado   String   // campanaHash recalculado en el momento de verificar
+  totalRegistros    Int      // cuántos registros COMPLETO se usaron
+
+  campana      Campana @relation(fields: [campanaId], references: [id])
+  ejecutadoPor Usuario @relation(fields: [ejecutadoPorId], references: [id])
+
+  @@map("verificaciones_hash_campana")
 }

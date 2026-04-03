@@ -17,10 +17,11 @@ import * as Location from "expo-location";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { Audio } from "expo-av";
-import { guardarAporteLocal } from "../src/services/campanas";
+import { guardarAporteLocal, sincronizarAportes } from "../src/services/campanas";
+import { sincronizarEventos } from "../src/services/sync";
 import { generarHashFoto, generarHashAudio } from "../src/lib/hash";
 import { useSesion } from "../src/store/sesionStore";
-import { yaAporteLocalExiste } from "../src/services/db";
+import { obtenerSyncEstadoAporte } from "../src/services/db";
 
 const VERDE = "#1a7f4b";
 
@@ -91,8 +92,9 @@ export default function RegistrarAporteScreen() {
   const [valores, setValores] = useState<Record<string, string>>(
     Object.fromEntries(camposDatos.map((c) => [c, ""]))
   );
-  const [guardando, setGuardando]       = useState(false);
-  const [yaRegistrado, setYaRegistrado] = useState(false);
+  const [guardando, setGuardando]                           = useState(false);
+  const [yaRegistrado, setYaRegistrado]                     = useState(false);
+  const [syncEstado, setSyncEstado]                         = useState<"PENDIENTE" | "SINCRONIZADO" | null>(null);
   const [fechaHora] = useState(() => {
     const now = new Date();
     return now.toLocaleDateString("es-CO", { day: "2-digit", month: "2-digit", year: "numeric" })
@@ -113,13 +115,20 @@ export default function RegistrarAporteScreen() {
   const [grabando, setGrabando]     = useState(false);
   const [grabacion, setGrabacion]   = useState<Audio.Recording | null>(null);
 
+  const tecnicoId = sesion?.userId ?? "";
+
   useEffect(() => {
     obtenerGps();
-    // Verificar si ya existe un aporte local para esta planta+campaña
-    if (campanaIdStr && plantaIdStr) {
-      yaAporteLocalExiste(campanaIdStr, plantaIdStr).then(setYaRegistrado);
+    // Verificar si ya existe un aporte local para esta planta+campaña+técnico
+    if (campanaIdStr && plantaIdStr && tecnicoId) {
+      obtenerSyncEstadoAporte(campanaIdStr, plantaIdStr, tecnicoId).then((estado) => {
+        setSyncEstado(estado);
+        // Solo bloquear si hay un aporte PENDIENTE de sync en local
+        // Si ya está SINCRONIZADO, el servidor es fuente de verdad
+        setYaRegistrado(estado === "PENDIENTE");
+      });
     }
-  }, [campanaIdStr, plantaIdStr]);
+  }, [campanaIdStr, plantaIdStr, tecnicoId]);
 
   async function obtenerGps() {
     setObteniendoGps(true);
@@ -205,6 +214,7 @@ export default function RegistrarAporteScreen() {
 
     setGuardando(true);
     try {
+      // 1. Guardar localmente con contentHash
       const camposObj: Record<string, unknown> = {};
       for (const campo of camposDatos) {
         const meta = getMeta(campo);
@@ -225,13 +235,38 @@ export default function RegistrarAporteScreen() {
         longitud:  gps?.lng,
       });
 
-      Alert.alert(
-        "Aporte guardado",
-        `Posición ${posicion} registrada con hash de integridad.\nSe enviará al servidor al sincronizar.`,
-        [{ text: "OK", onPress: () => router.back() }]
-      );
+      // 2. Intentar sincronizar automáticamente
+      try {
+        const [resEventos, resAportes] = await Promise.all([
+          sincronizarEventos(),
+          sincronizarAportes(),
+        ]);
+        const totalEnviados = resEventos.aceptados + resAportes.enviados;
+        const totalErrores  = [...resEventos.errores, ...resAportes.errores];
+
+        if (totalErrores.length > 0) {
+          Alert.alert(
+            "Guardado con advertencias",
+            `✅ Aporte P${posicion} guardado.\n⚠️ ${totalErrores.join("\n")}\n\nPuedes reintentar desde la pestaña Sincronizar.`,
+            [{ text: "OK", onPress: () => router.back() }]
+          );
+        } else {
+          Alert.alert(
+            "✅ Guardado y enviado",
+            `Aporte P${posicion} registrado y sincronizado con el servidor (${totalEnviados} enviado(s)).`,
+            [{ text: "OK", onPress: () => router.back() }]
+          );
+        }
+      } catch {
+        // Sin conexión — ya está guardado localmente
+        Alert.alert(
+          "✅ Guardado localmente",
+          `Aporte P${posicion} guardado con hash de integridad.\n\nNo hay conexión ahora. Sincroniza desde la pestaña Sincronizar cuando tengas red.`,
+          [{ text: "OK", onPress: () => router.back() }]
+        );
+      }
     } catch (err) {
-      Alert.alert("Error", String(err));
+      Alert.alert("Error al guardar", String(err));
     } finally {
       setGuardando(false);
     }
@@ -256,12 +291,29 @@ export default function RegistrarAporteScreen() {
 
       {/* Banner de bloqueo — ya existe aporte local */}
       {yaRegistrado && (
-        <View style={s.bloqueadoBanner}>
-          <Ionicons name="lock-closed" size={20} color="#92400e" />
+        <View style={[
+          s.bloqueadoBanner,
+          syncEstado === "SINCRONIZADO" && s.bloqueadoBannerOk,
+        ]}>
+          <Ionicons
+            name={syncEstado === "SINCRONIZADO" ? "checkmark-circle" : "lock-closed"}
+            size={20}
+            color={syncEstado === "SINCRONIZADO" ? "#166534" : "#92400e"}
+          />
           <View style={{ flex: 1 }}>
-            <Text style={s.bloqueadoTitulo}>Ya tienes un aporte guardado</Text>
-            <Text style={s.bloqueadoSub}>
-              Este registro está pendiente de sincronizar. Ve a la pestaña Sincronizar para enviarlo al servidor.
+            <Text style={[
+              s.bloqueadoTitulo,
+              syncEstado === "SINCRONIZADO" && { color: "#166534" },
+            ]}>
+              {syncEstado === "SINCRONIZADO" ? "Aporte enviado al servidor" : "Aporte guardado localmente"}
+            </Text>
+            <Text style={[
+              s.bloqueadoSub,
+              syncEstado === "SINCRONIZADO" && { color: "#15803d" },
+            ]}>
+              {syncEstado === "SINCRONIZADO"
+                ? "Este aporte ya fue sincronizado correctamente."
+                : "Pendiente de enviar al servidor. Ve a la pestaña Sincronizar cuando tengas conexión."}
             </Text>
           </View>
         </View>
@@ -491,9 +543,10 @@ const s = StyleSheet.create({
                      padding: 12, backgroundColor: "#f3f4f6" },
   inputBloqueadoText: { fontSize: 15, color: "#6b7280", flex: 1 },
   // Banner aporte ya registrado localmente
-  bloqueadoBanner: { flexDirection: "row", alignItems: "flex-start", gap: 10,
+  bloqueadoBanner: { flexDirection: "row", alignItems: "center", gap: 10,
                      backgroundColor: "#fef3c7", borderBottomWidth: 1, borderBottomColor: "#fde68a",
                      paddingHorizontal: 16, paddingVertical: 12 },
+  bloqueadoBannerOk: { backgroundColor: "#f0fdf4", borderBottomColor: "#bbf7d0" },
   bloqueadoTitulo: { fontSize: 13, fontWeight: "700", color: "#92400e" },
   bloqueadoSub:    { fontSize: 12, color: "#b45309", marginTop: 2, lineHeight: 16 },
 });

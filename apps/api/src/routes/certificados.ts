@@ -16,7 +16,23 @@ export async function certificadosRoutes(app: FastifyInstance) {
   app.get("/", { preHandler: [(app as any).authenticate] }, async (_request, reply) => {
     const certs = await db.certificado.findMany({
       include: {
-        lote: { select: { codigoLote: true, especie: true } },
+        lote: {
+          select: {
+            codigoLote: true, especie: true, variedad: true, dataHash: true, txRegistro: true,
+            predio: { select: { nombrePredio: true } },
+            inspecciones: {
+              where: { estado: "COMPLETADA" },
+              orderBy: { fechaRealizada: "desc" },
+              take: 1,
+              include: { inspector: { select: { nombres: true, apellidos: true } } },
+            },
+            campanas: {
+              where:   { estado: "CERRADA" },
+              select:  { nombre: true, campanaHash: true, txHash: true },
+              orderBy: { fechaCierre: "desc" },
+            },
+          },
+        },
         aprobadoPor: { select: { nombres: true, apellidos: true } },
       },
       orderBy: { fechaEmision: "desc" },
@@ -30,8 +46,8 @@ export async function certificadosRoutes(app: FastifyInstance) {
     { preHandler: [(app as any).authenticate] },
     async (request, reply) => {
       const payload = (request as any).user as { sub: string; rol: string };
-      if (!["CERTIFICADORA", "ADMIN"].includes(payload.rol)) {
-        return reply.status(403).send({ message: "Solo certificadoras" });
+      if (payload.rol !== "CERTIFICADORA") {
+        return reply.status(403).send({ message: "Solo certificador(a) pueden emitir certificados" });
       }
 
       const parsed = EmitirSchema.safeParse(request.body);

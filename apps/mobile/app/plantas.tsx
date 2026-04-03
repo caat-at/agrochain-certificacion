@@ -11,7 +11,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
-import { listarPlantas, upsertPlanta, PlantaLocal } from "../src/services/db";
+import { listarPlantas, upsertPlanta, eliminarPlantasHuerfanas, PlantaLocal, listarAportesDeCampana } from "../src/services/db";
 import { cargarPlantasDesdeServidor, registrarPlantaEnServidor } from "../src/services/sync";
 import { cargarCampanaDesdeServidor, PlantaCampana } from "../src/services/campanas";
 import { useSesion } from "../src/store/sesionStore";
@@ -48,6 +48,8 @@ export default function PlantasScreen() {
   const [campanaId, setCampanaId]           = useState<string | null>(null); // null = sin campaña
   const [miPosicion, setMiPosicion]         = useState<number | null>(null);
   const [misCampos, setMisCampos]           = useState<string[]>([]);
+  // plantaIds con aporte local pendiente de sincronizar
+  const [aportesLocales, setAportesLocales] = useState<Set<string>>(new Set());
 
   // Campos de identificación
   const [codigoPlanta, setCodigoPlanta]     = useState("");
@@ -88,17 +90,23 @@ export default function PlantasScreen() {
             setCampanaId(det.campana.id);
             setMiPosicion(det.miPosicion ?? null);
             setMisCampos(det.misCampos ?? []);
+            // Construir set de plantaIds con aporte local (PENDIENTE o SINCRONIZADO)
+            const aportesPend = await listarAportesDeCampana(det.campana.id);
+            const localSet = new Set(aportesPend.map((a) => a.plantaId));
+            setAportesLocales(localSet);
           } else {
             setEstadosCampana({});
             setCampanaId(null);
             setMiPosicion(null);
             setMisCampos([]);
+            setAportesLocales(new Set());
           }
         } catch {
           setEstadosCampana({});
           setCampanaId(null);
           setMiPosicion(null);
           setMisCampos([]);
+          setAportesLocales(new Set());
         }
 
         try {
@@ -125,6 +133,8 @@ export default function PlantasScreen() {
               creadoEn: new Date().toISOString(),
             });
           }
+          // Eliminar plantas locales que ya no existen en el servidor
+          await eliminarPlantasHuerfanas(loteId, remotas.map((p) => p.id));
           await cargarLocal();
         } catch { /* sin red — mostrar solo locales */ }
       }
@@ -159,6 +169,8 @@ export default function PlantasScreen() {
           creadoEn: new Date().toISOString(),
         });
       }
+      // Eliminar plantas locales que ya no existen en el servidor
+      await eliminarPlantasHuerfanas(loteId, remotas.map((p) => p.id));
       await cargarLocal();
     } catch (err) {
       Alert.alert("Error", `No se pudieron cargar plantas: ${String(err)}`);
@@ -335,11 +347,14 @@ export default function PlantasScreen() {
           const estadoReg = estadoC?.estadoRegistro ?? (campanaId ? "SIN_REGISTRO" : null);
           // Puede registrar si: hay campaña activa Y la planta fue cargada desde el servidor
           // Y su estado permite registro Y el técnico tiene posición Y aún no aportó
+          // Y no tiene aporte guardado localmente pendiente de sincronizar
+          const tieneAporteLocal = aportesLocales.has(item.id);
           const puedeRegistrar = campanaId != null &&
             estadoC != null &&
             miPosicion !== null &&
             misCampos.length > 0 &&
             !estadoC.yaTecnicoAporto &&
+            !tieneAporteLocal &&
             ["SIN_REGISTRO", "PARCIAL", "PENDIENTE", "ADULTERADO"].includes(estadoReg ?? "");
 
           const ESTADO_COLOR_CAM: Record<string, { bg: string; text: string; label: string }> = {

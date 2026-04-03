@@ -83,4 +83,56 @@ export async function usuariosRoutes(app: FastifyInstance) {
 
     return reply.status(201).send({ usuario });
   });
+
+  // PATCH /api/usuarios/:id — editar usuario (solo ADMIN)
+  app.patch<{ Params: { id: string } }>(
+    "/:id",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
+      const payload = (request as any).user as { rol: string };
+      if (payload.rol !== "ADMIN") {
+        return reply.status(403).send({ message: "Solo administradores" });
+      }
+
+      const { id } = request.params;
+      const body = request.body as any;
+
+      const EditarSchema = z.object({
+        nombres:   z.string().min(1).optional(),
+        apellidos: z.string().min(1).optional(),
+        email:     z.string().email().optional(),
+        rol:       z.enum(["ADMIN", "TECNICO", "AGRICULTOR", "INSPECTOR_ICA", "INSPECTOR_BPA", "CERTIFICADORA", "INVIMA"]).optional(),
+        activo:    z.boolean().optional(),
+        password:  z.string().min(6).optional(),
+      });
+
+      const parsed = EditarSchema.safeParse(body);
+      if (!parsed.success) {
+        return reply.status(400).send({ message: "Datos inválidos", errors: parsed.error.flatten().fieldErrors });
+      }
+
+      const existente = await db.usuario.findUnique({ where: { id } });
+      if (!existente) return reply.status(404).send({ message: "Usuario no encontrado" });
+
+      if (parsed.data.email && parsed.data.email !== existente.email) {
+        const emailEnUso = await db.usuario.findUnique({ where: { email: parsed.data.email } });
+        if (emailEnUso) return reply.status(409).send({ message: "Ya existe un usuario con ese email" });
+      }
+
+      const { password, ...resto } = parsed.data;
+      const dataActualizar: any = { ...resto };
+      if (password) dataActualizar.passwordHash = sha256(password);
+
+      const actualizado = await db.usuario.update({
+        where: { id },
+        data:  dataActualizar,
+        select: {
+          id: true, nombres: true, apellidos: true,
+          email: true, rol: true, activo: true, createdAt: true,
+        },
+      });
+
+      return { usuario: actualizado };
+    }
+  );
 }

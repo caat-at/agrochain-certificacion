@@ -7,6 +7,7 @@ import Link from "next/link";
 import QRCodeImg from "@/components/QRCode";
 import RegistrarBlockchainBtn from "./RegistrarBlockchainBtn";
 import { DescargarPdfBtn } from "./DescargarPdfBtn";
+import { PlantasGrid, type PlantaLote } from "./PlantasGrid";
 
 interface CampanaLote {
   id: string;
@@ -19,6 +20,7 @@ interface CampanaLote {
   _count: { registros: number };
   creador: { nombres: string; apellidos: string };
 }
+
 
 interface LoteDetalle {
   id: string;
@@ -71,17 +73,20 @@ export default async function LoteDetallePage({
   const { id } = params;
   let lote: LoteDetalle;
   let campanas: CampanaLote[] = [];
+  let plantas: PlantaLote[] = [];
 
   const token = cookies().get("ac_token")?.value ?? "";
 
   try {
-    const [resLote, resCampanas] = await Promise.all([
+    const [resLote, resCampanas, resPlantas] = await Promise.all([
       apiFetch<{ success: boolean; data: LoteDetalle }>(`/api/lotes/${id}`),
       apiFetch<{ campanas: CampanaLote[] }>(`/api/campanas?loteId=${id}`).catch(() => ({ campanas: [] })),
+      apiFetch<{ plantas: PlantaLote[] }>(`/api/lotes/${id}/plantas`).catch(() => ({ plantas: [] })),
     ]);
     if (!resLote.success) notFound();
     lote = resLote.data;
     campanas = resCampanas.campanas;
+    plantas = resPlantas.plantas;
   } catch {
     notFound();
   }
@@ -180,6 +185,15 @@ export default async function LoteDetallePage({
                 ))}
               </div>
             )}
+          </div>
+
+          {/* Plantas del lote */}
+          <div className="card">
+            <h2 className="font-semibold text-gray-800 mb-4">
+              Plantas
+              <span className="ml-2 text-xs font-normal text-gray-400">({plantas.length})</span>
+            </h2>
+            <PlantasGrid plantas={plantas} />
           </div>
 
           {/* Campañas del lote */}

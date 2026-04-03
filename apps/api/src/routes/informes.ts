@@ -27,7 +27,7 @@ export async function informesRoutes(app: FastifyInstance) {
                   include: {
                     tecnico: { select: { nombres: true, apellidos: true, rol: true } },
                   },
-                  orderBy: { timestamp: "asc" },
+                  orderBy: { fechaAporte: "asc" },
                 },
               },
               orderBy: { createdAt: "asc" },

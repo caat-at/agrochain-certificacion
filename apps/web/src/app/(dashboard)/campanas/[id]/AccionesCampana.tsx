@@ -164,7 +164,7 @@ export function CerrarCampanaBtn({
 
 // ── Botón verificar integridad ────────────────────────────────────────────────
 
-export function VerificarIntegridadBtn({ campanaId }: { campanaId: string }) {
+export function VerificarIntegridadBtn({ campanaId, onVerificado }: { campanaId: string; onVerificado?: () => void }) {
   const [loading, setLoading]     = useState(false);
   const [resultado, setResultado] = useState<{
     ok: boolean;
@@ -177,16 +177,13 @@ export function VerificarIntegridadBtn({ campanaId }: { campanaId: string }) {
     setLoading(true);
     setResultado(null);
     try {
-      const res = await fetch(`${getApiUrl()}/api/campanas/${campanaId}/verificar-integridad`, {
+      const res = await fetch(`/api/campanas/${campanaId}/verificar-integridad`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getToken()}`,
-        },
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message ?? `HTTP ${res.status}`);
       setResultado(data);
+      onVerificado?.();
       router.refresh();
     } catch (e) {
       setResultado({ ok: false, mensaje: String(e), adulteracionesDetectadas: [] });
@@ -222,6 +219,89 @@ export function VerificarIntegridadBtn({ campanaId }: { campanaId: string }) {
                 </li>
               ))}
             </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Botón verificar hash de campaña ──────────────────────────────────────────
+
+export function VerificarHashCampanaBtn({ campanaId, onVerificado }: { campanaId: string; onVerificado?: () => void }) {
+  const [loading, setLoading]     = useState(false);
+  const [resultado, setResultado] = useState<{
+    ok: boolean;
+    mensaje: string;
+    hashGuardado: string;
+    hashRecalculado: string;
+    totalRegistros: number;
+  } | null>(null);
+  const [expandido, setExpandido] = useState(false);
+
+  async function handleVerificar() {
+    setLoading(true);
+    setResultado(null);
+    try {
+      const res = await fetch(`/api/campanas/${campanaId}/verificar-hash-campana`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message ?? `HTTP ${res.status}`);
+      setResultado(data);
+      setExpandido(false);
+      onVerificado?.();
+    } catch (e) {
+      setResultado({
+        ok: false,
+        mensaje: String(e),
+        hashGuardado: "",
+        hashRecalculado: "",
+        totalRegistros: 0,
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <button
+        onClick={handleVerificar}
+        disabled={loading}
+        className="w-full px-4 py-2.5 border border-gray-200 hover:bg-gray-50 text-gray-700 text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+      >
+        {loading ? "Verificando hash…" : "Verificar hash de campaña"}
+      </button>
+      {resultado && (
+        <div className={`rounded-lg px-3 py-2.5 text-xs border space-y-2 ${
+          resultado.ok
+            ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+            : "bg-red-50 border-red-200 text-red-700"
+        }`}>
+          <p className="font-semibold">
+            {resultado.ok ? "✓ Hash de campaña válido" : "⚠ Hash de campaña NO coincide"}
+          </p>
+          <p>{resultado.mensaje}</p>
+          {resultado.hashGuardado && (
+            <button
+              onClick={() => setExpandido(!expandido)}
+              className="text-[10px] underline opacity-70 hover:opacity-100"
+            >
+              {expandido ? "Ocultar hashes" : "Ver hashes"}
+            </button>
+          )}
+          {expandido && (
+            <div className="space-y-1.5 pt-1 border-t border-current/20">
+              <div>
+                <p className="opacity-60 mb-0.5">Hash sellado al cierre:</p>
+                <p className="font-mono break-all text-[10px]">{resultado.hashGuardado}</p>
+              </div>
+              <div>
+                <p className="opacity-60 mb-0.5">Hash recalculado ({resultado.totalRegistros} registros):</p>
+                <p className="font-mono break-all text-[10px]">{resultado.hashRecalculado}</p>
+              </div>
+            </div>
           )}
         </div>
       )}

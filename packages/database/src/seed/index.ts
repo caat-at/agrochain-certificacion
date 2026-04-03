@@ -119,14 +119,14 @@ async function seed() {
   const inspectorId = "usr_inspector_001";
   await db.usuario.upsert({
     where: { numeroDocumento: "79865432" },
-    update: { passwordHash: passDemo },
+    update: { passwordHash: passDemo, email: "inspector@agrochain.co" },
     create: {
       id: inspectorId,
       nombres: "Maria Fernanda",
       apellidos: "Torres Rincon",
       tipoDocumento: "CC",
       numeroDocumento: "79865432",
-      email: "m.torres@ica.gov.co",
+      email: "inspector@agrochain.co",
       telefono: "3209876543",
       rol: "INSPECTOR_BPA",
       passwordHash: passDemo,
@@ -137,9 +137,33 @@ async function seed() {
     update: {},
     create: { usuarioId: inspectorId, organizacionId: orgId, cargo: "Inspector BPA Senior" },
   });
-  console.log("   ✅ inspector_bpa  (m.torres@ica.gov.co)");
+  console.log("   ✅ inspector_bpa  (inspector@agrochain.co)");
 
-  // ── 7. TÉCNICOS (4) ──────────────────────────────────────────────────────
+  // ── 7. USUARIO CERTIFICADORA ─────────────────────────────────────────────
+  const certificadoraId = "usr_certificadora_001";
+  await db.usuario.upsert({
+    where: { numeroDocumento: "52789012" },
+    update: { passwordHash: passDemo, email: "certificador@agrochain.co" },
+    create: {
+      id: certificadoraId,
+      nombres: "Sandra Milena",
+      apellidos: "Ospina Vargas",
+      tipoDocumento: "CC",
+      numeroDocumento: "52789012",
+      email: "certificador@agrochain.co",
+      telefono: "3156789012",
+      rol: "CERTIFICADORA",
+      passwordHash: passDemo,
+    },
+  });
+  await db.usuarioOrganizacion.upsert({
+    where: { usuarioId_organizacionId: { usuarioId: certificadoraId, organizacionId: orgId } },
+    update: {},
+    create: { usuarioId: certificadoraId, organizacionId: orgId, cargo: "Certificadora BPA Senior" },
+  });
+  console.log("   ✅ certificadora  (certificador@agrochain.co)");
+
+  // ── 8. TÉCNICOS (4) ──────────────────────────────────────────────────────
   const tecnicoIds = [
     "usr_tecnico_001",
     "usr_tecnico_002",
@@ -399,14 +423,15 @@ async function seed() {
   console.log(`   Departamentos  : ${departamentos.length}`);
   console.log(`   Municipios     : ${municipios.length}`);
   console.log(`   Numerales BPA  : ${numeralesNtc5400.length}`);
-  console.log(`   Usuarios       : 7`);
-  console.log(`     - admin      : admin@agrochain.co`);
-  console.log(`     - agricultor : agricultor@agrochain.co`);
-  console.log(`     - inspector  : m.torres@ica.gov.co`);
-  console.log(`     - tecnico1   : tecnico1@agrochain.co  (Posición 1)`);
-  console.log(`     - tecnico2   : tecnico2@agrochain.co  (Posición 2)`);
-  console.log(`     - tecnico3   : tecnico3@agrochain.co  (Posición 3)`);
-  console.log(`     - tecnico4   : tecnico4@agrochain.co  (Posición 4)`);
+  console.log(`   Usuarios       : 8`);
+  console.log(`     - admin         : admin@agrochain.co`);
+  console.log(`     - agricultor    : agricultor@agrochain.co`);
+  console.log(`     - inspector     : inspector@agrochain.co`);
+  console.log(`     - certificadora : certificador@agrochain.co`);
+  console.log(`     - tecnico1      : tecnico1@agrochain.co  (Posición 1)`);
+  console.log(`     - tecnico2      : tecnico2@agrochain.co  (Posición 2)`);
+  console.log(`     - tecnico3      : tecnico3@agrochain.co  (Posición 3)`);
+  console.log(`     - tecnico4      : tecnico4@agrochain.co  (Posición 4)`);
   console.log(`   Password demo  : password123`);
   console.log(`   Predios        : 1  (Finca El Paraíso — Rionegro, Ant.)`);
   console.log(`   Lotes          : 2`);

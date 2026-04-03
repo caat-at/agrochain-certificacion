@@ -27,12 +27,22 @@ export async function lotesRoutes(app: FastifyInstance) {
       where,
       include: {
         predio: { select: { id: true, nombrePredio: true } },
+        inspecciones: payload.rol === "CERTIFICADORA" ? {
+          where:   { estado: "COMPLETADA" },
+          orderBy: { fechaRealizada: "desc" },
+          take:    1,
+          include: { inspector: { select: { nombres: true, apellidos: true } } },
+        } : false,
+        campanas: payload.rol === "CERTIFICADORA" ? {
+          where:   { estado: "CERRADA" },
+          select:  { id: true, nombre: true, campanaHash: true, txHash: true, fechaCierre: true },
+        } : false,
       },
       orderBy: { createdAt: "desc" },
     });
 
     return {
-      lotes: lotes.map((l) => ({
+      lotes: lotes.map((l: any) => ({
         id:               l.id,
         codigoLote:       l.codigoLote,
         predioId:         l.predio?.id ?? null,
@@ -45,6 +55,16 @@ export async function lotesRoutes(app: FastifyInstance) {
         sistemaRiego:     l.sistemaRiego,
         estadoLote:       l.estado,
         dataHash:         l.dataHash,
+        txRegistro:          l.txRegistro ?? null,
+        inspeccion:          l.inspecciones?.[0] ?? null,
+        campanasVerificadas: l.campanas?.filter((c: any) => !!c.campanaHash).length ?? 0,
+        campanas:            l.campanas?.filter((c: any) => !!c.campanaHash).map((c: any) => ({
+          id:          c.id,
+          nombre:      c.nombre,
+          campanaHash: c.campanaHash,
+          txHash:      c.txHash ?? null,
+          fechaCierre: c.fechaCierre?.toISOString() ?? null,
+        })) ?? [],
       })),
     };
   });
@@ -59,6 +79,11 @@ export async function lotesRoutes(app: FastifyInstance) {
         plantas: { where: { activo: true } },
         eventos: { orderBy: { fechaEvento: "desc" }, take: 20 },
         certificado: true,
+        campanas: {
+          where:   { estado: "CERRADA" },
+          select:  { id: true, nombre: true, campanaHash: true, txHash: true, fechaCierre: true },
+          orderBy: { fechaCierre: "desc" },
+        },
       },
     });
 

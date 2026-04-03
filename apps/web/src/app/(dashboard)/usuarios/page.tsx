@@ -3,6 +3,7 @@ import { apiFetch } from "@/lib/api";
 import { formatFecha } from "@/lib/utils";
 import { getSession } from "@/lib/auth";
 import { NuevoUsuarioForm } from "./NuevoUsuarioForm";
+import { EditarUsuarioBtn } from "./EditarUsuarioBtn";
 
 interface UsuarioItem {
   id: string;
@@ -60,6 +61,9 @@ export default async function UsuariosPage() {
               <th className="text-left px-4 py-3 font-medium text-gray-500">Rol</th>
               <th className="text-left px-4 py-3 font-medium text-gray-500">Estado</th>
               <th className="text-left px-4 py-3 font-medium text-gray-500">Registrado</th>
+              {session?.rol === "ADMIN" && (
+                <th className="text-left px-4 py-3 font-medium text-gray-500">Acciones</th>
+              )}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
@@ -82,11 +86,16 @@ export default async function UsuariosPage() {
                 <td className="px-4 py-3 text-gray-400 text-xs">
                   {formatFecha(u.createdAt)}
                 </td>
+                {session?.rol === "ADMIN" && (
+                  <td className="px-4 py-3">
+                    <EditarUsuarioBtn usuario={u} />
+                  </td>
+                )}
               </tr>
             ))}
             {usuarios.length === 0 && !error && (
               <tr>
-                <td colSpan={5} className="px-4 py-12 text-center text-gray-400">
+                <td colSpan={session?.rol === "ADMIN" ? 6 : 5} className="px-4 py-12 text-center text-gray-400">
                   Sin usuarios registrados
                 </td>
               </tr>

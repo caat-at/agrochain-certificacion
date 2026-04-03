@@ -5,13 +5,13 @@
  */
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, Platform,
+  ActivityIndicator, Platform, Alert,
 } from "react-native";
 import { useCallback, useState } from "react";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { obtenerPlanta, PlantaLocal, listarEventosPorPlanta, guardarEvento, EventoLocal, yaAporteLocalExiste } from "../src/services/db";
-import { cargarEventosDesdeServidor } from "../src/services/sync";
+import { obtenerPlanta, PlantaLocal, listarEventosPorPlanta, guardarEvento, EventoLocal, obtenerSyncEstadoAporte, AportePendiente, listarAportesPorPlanta, obtenerSesion } from "../src/services/db";
+import { cargarEventosDesdeServidor, cargarAportesCampanaDesdeServidor, RegistroCampanaApi } from "../src/services/sync";
 import { cargarCampanaDesdeServidor, PlantaCampana } from "../src/services/campanas";
 
 const VERDE = "#1a7f4b";
@@ -57,6 +57,8 @@ export default function DetallePlantaScreen() {
 
   const [planta, setPlanta]   = useState<PlantaLocal | null>(null);
   const [eventos, setEventos] = useState<EventoLocal[]>([]);
+  const [registrosCampana, setRegistrosCampana] = useState<RegistroCampanaApi[]>([]);
+  const [aporteLocal, setAporteLocal] = useState<AportePendiente | null>(null);
   const [cargando, setCargando] = useState(true);
   // Estado de la planta en la campaña activa del lote
   const [estadoEnCampana, setEstadoEnCampana] = useState<{
@@ -74,12 +76,15 @@ export default function DetallePlantaScreen() {
       let activo = true;
       setCargando(true);
       async function cargar() {
-        const [p, locales] = await Promise.all([
+        const [p, locales, aportesDelTecnico] = await Promise.all([
           obtenerPlanta(plantaId),
           listarEventosPorPlanta(plantaId),
+          listarAportesPorPlanta(plantaId),
         ]);
         if (!activo) return;
         setPlanta(p);
+        // Mostrar el aporte local del técnico actual en historial (pendiente o sincronizado)
+        if (activo) setAporteLocal(aportesDelTecnico[0] ?? null);
 
         // Consultar campaña activa del lote para saber si puede registrar evento
         if (loteId) {
@@ -88,18 +93,27 @@ export default function DetallePlantaScreen() {
             if (det) {
               const plantaEnCampana = det.plantas.find((pp: PlantaCampana) => pp.id === plantaId);
               const estado = plantaEnCampana?.estadoRegistro ?? "SIN_REGISTRO";
-              // Puede registrar si: sin registro, parcial o adulterado
-              const puedeRegistrar = ["SIN_REGISTRO", "PARCIAL", "PENDIENTE", "ADULTERADO"].includes(estado);
-              // Verificar si ya hay un aporte guardado localmente pendiente de sync
-              const tieneAporteLocal = await yaAporteLocalExiste(det.campana.id, plantaId);
+              // El servidor indica si este técnico ya aportó en esta planta
+              const yaAportoEnServidor = plantaEnCampana?.yaTecnicoAporto ?? false;
+              // Puede registrar si el estado lo permite Y el servidor no confirma aporte previo
+              const estadoPermite = ["SIN_REGISTRO", "PARCIAL", "PENDIENTE", "ADULTERADO"].includes(estado);
+              // Verificar aporte local PENDIENTE de sync (solo para detectar offline pendiente)
+              const sesion = await obtenerSesion();
+              // Solo bloquear por aporte local si está PENDIENTE de sync (no si ya se sincronizó)
+              // Si ya está SINCRONIZADO, el servidor es la fuente de verdad (yaTecnicoAporto)
+              const estadoAporteLocal = sesion
+                ? await obtenerSyncEstadoAporte(det.campana.id, plantaId, sesion.userId)
+                : null;
+              const tieneAportePendienteLocal = estadoAporteLocal === "PENDIENTE";
+              const yaRegistrado = yaAportoEnServidor || tieneAportePendienteLocal;
               setEstadoEnCampana({
                 campanaId:        det.campana.id,
                 estadoRegistro:   estado,
                 camposFaltantes:  plantaEnCampana?.camposFaltantes ?? [],
                 misCampos:        det.misCampos ?? [],
                 miPosicion:       det.miPosicion ?? null,
-                puedeRegistrar:   puedeRegistrar && !tieneAporteLocal,
-                tieneAporteLocal,
+                puedeRegistrar:   estadoPermite && !yaRegistrado,
+                tieneAporteLocal: tieneAportePendienteLocal, // solo true si hay algo local PENDIENTE de enviar
               });
             } else {
               setEstadoEnCampana(null); // Sin campaña activa
@@ -109,10 +123,16 @@ export default function DetallePlantaScreen() {
           }
         }
 
-        // Intentar traer eventos del servidor y persistir los nuevos localmente
+        // Intentar traer eventos clásicos y aportes de campaña desde el servidor
         let todos = locales;
+        let regCampana: RegistroCampanaApi[] = [];
         try {
-          const remotos = await cargarEventosDesdeServidor(plantaId);
+          const [remotos, registros] = await Promise.all([
+            cargarEventosDesdeServidor(plantaId),
+            cargarAportesCampanaDesdeServidor(plantaId),
+          ]);
+          regCampana = registros;
+
           const hashsLocales = new Set(locales.map((e) => e.contentHash));
           for (const r of remotos) {
             if (!hashsLocales.has(r.contentHash)) {
@@ -155,7 +175,10 @@ export default function DetallePlantaScreen() {
           // Sin red — mostrar solo locales
         }
 
-        if (activo) setEventos(todos);
+        if (activo) {
+          setEventos(todos);
+          setRegistrosCampana(regCampana);
+        }
       }
       cargar().finally(() => { if (activo) setCargando(false); });
       return () => { activo = false; };
@@ -206,18 +229,6 @@ export default function DetallePlantaScreen() {
             <Ionicons name="lock-closed-outline" size={16} color="rgba(255,255,255,0.5)" />
             <Text style={[styles.btnNuevoEventoText, { opacity: 0.5 }]}>Sin campaña</Text>
           </TouchableOpacity>
-        ) : estadoEnCampana.tieneAporteLocal ? (
-          // Aporte guardado localmente — pendiente de sincronizar
-          <TouchableOpacity
-            style={[styles.btnNuevoEvento, styles.btnPendienteSync]}
-            onPress={() => Alert.alert(
-              "Aporte pendiente",
-              "Ya tienes un aporte guardado para esta planta pendiente de sincronizar. Ve a la pestaña Sincronizar para enviarlo."
-            )}
-          >
-            <Ionicons name="cloud-upload-outline" size={16} color="#fff" />
-            <Text style={styles.btnNuevoEventoText}>Por sincronizar</Text>
-          </TouchableOpacity>
         ) : estadoEnCampana.puedeRegistrar ? (
           // Puede registrar
           <TouchableOpacity
@@ -231,17 +242,31 @@ export default function DetallePlantaScreen() {
               {estadoEnCampana.estadoRegistro === "ADULTERADO" ? "Reregistrar" : "Registrar datos"}
             </Text>
           </TouchableOpacity>
-        ) : (
-          // Registro completo
+        ) : estadoEnCampana.estadoRegistro === "COMPLETO" ? (
+          // Todos los técnicos aportaron — registro completo en servidor
           <TouchableOpacity
             style={[styles.btnNuevoEvento, styles.btnCompleto]}
             onPress={() => Alert.alert(
               "Registro completo",
-              "Esta planta ya tiene todos los campos requeridos de la campaña activa."
+              "Esta planta ya tiene todos los campos requeridos registrados en el servidor."
             )}
           >
             <Ionicons name="checkmark-circle" size={16} color="#fff" />
             <Text style={styles.btnNuevoEventoText}>Completo</Text>
+          </TouchableOpacity>
+        ) : (
+          // Ya registrado — el técnico ya aportó (servidor o local pendiente)
+          <TouchableOpacity
+            style={[styles.btnNuevoEvento, styles.btnDeshabilitado]}
+            onPress={() => Alert.alert(
+              "Ya registrado",
+              estadoEnCampana.tieneAporteLocal
+                ? "Ya tienes un aporte guardado para esta planta. Ve a la pestaña Sincronizar cuando tengas conexión."
+                : "Ya enviaste tu aporte para esta planta en esta campaña."
+            )}
+          >
+            <Ionicons name="lock-closed-outline" size={16} color="rgba(255,255,255,0.5)" />
+            <Text style={[styles.btnNuevoEventoText, { opacity: 0.5 }]}>Ya registrado</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -316,53 +341,192 @@ export default function DetallePlantaScreen() {
         {/* ── HISTORIAL DE VISITAS ────────────────────────── */}
         <View style={styles.seccionHistorial}>
           <Text style={styles.seccionHistorialTitulo}>
-            Historial de visitas ({eventos.length})
+            Historial de visitas ({eventos.length + registrosCampana.length + (aporteLocal && !registrosCampana.some((r) => r.aportes.some((a) => a.contentHash === aporteLocal.contentHash)) ? 1 : 0)})
           </Text>
         </View>
 
-        {eventos.length === 0 ? (
+        {eventos.length === 0 && registrosCampana.length === 0 && !aporteLocal ? (
           <View style={styles.vacioHistorial}>
             <Ionicons name="time-outline" size={40} color="#ccc" />
             <Text style={styles.vacioHistorialText}>Sin visitas registradas</Text>
-            <Text style={styles.vacioHistorialSub}>Toca "Nueva visita" para registrar la primera</Text>
+            <Text style={styles.vacioHistorialSub}>Toca "Registrar datos" para registrar la primera</Text>
           </View>
         ) : (
-          eventos.map((ev) => {
-            let extra: Record<string, string> = {};
-            try { extra = JSON.parse(ev.datosExtra); } catch {}
-            return (
-              <View key={ev.id} style={styles.eventoCard}>
+          <>
+            {/* Aporte local del técnico — solo si no pertenece a ningún registro de campaña conocido */}
+            {aporteLocal && (() => {
+              // Ocultar si ya está en el servidor O si pertenece a un registro conocido (se muestra integrado)
+              const yaEnServidor = registrosCampana.some((reg) =>
+                reg.aportes.some((a) => a.contentHash === aporteLocal.contentHash)
+              );
+              const perteneceARegistroConocido = registrosCampana.some(
+                (reg) => reg.campana.id === aporteLocal.campanaId
+              );
+              if (yaEnServidor || perteneceARegistroConocido) return null;
+              return (
+              <View key={aporteLocal.id} style={[styles.eventoCard, { borderLeftWidth: 3, borderLeftColor: "#f59e0b" }]}>
                 <View style={styles.eventoLeft}>
-                  <View style={[styles.eventoIcono, { backgroundColor: "#f0faf4" }]}>
-                    <Ionicons
-                      name={(TIPO_ICONO[ev.tipoEvento] ?? "ellipsis-horizontal") as any}
-                      size={18}
-                      color={VERDE}
-                    />
+                  <View style={[styles.eventoIcono, { backgroundColor: "#fffbeb" }]}>
+                    <Ionicons name="cloud-upload-outline" size={18} color="#f59e0b" />
                   </View>
                 </View>
                 <View style={styles.eventoCentro}>
-                  <Text style={styles.eventoTipo}>{ev.tipoEvento.replace(/_/g, " ")}</Text>
-                  <Text style={styles.eventoFecha}>{ev.fechaEvento.substring(0, 16).replace("T", " ")}</Text>
-                  {ev.descripcion ? (
-                    <Text style={styles.eventoDesc} numberOfLines={2}>{ev.descripcion}</Text>
-                  ) : null}
-                  {extra.alturaCm && (
-                    <Text style={styles.eventoExtra}>Altura: {extra.alturaCm} cm</Text>
-                  )}
+                  <Text style={styles.eventoTipo}>Tu aporte (pendiente)</Text>
+                  <Text style={styles.eventoFecha}>
+                    {aporteLocal.creadoEn?.substring(0, 16).replace("T", " ") ?? ""}
+                  </Text>
+                  {(() => {
+                    let campos: Record<string, unknown> = {};
+                    try { campos = JSON.parse(aporteLocal.campos); } catch {}
+                    const texto = Object.entries(campos)
+                      .filter(([, v]) => v !== null && v !== undefined && v !== "")
+                      .map(([k, v]) => `${k}: ${v}`)
+                      .join(" · ");
+                    return texto ? <Text style={styles.eventoExtra} numberOfLines={2}>{texto}</Text> : null;
+                  })()}
+                  {aporteLocal.fotoHash && <Text style={styles.eventoExtra}>Foto registrada 📷</Text>}
+                  {aporteLocal.audioHash && <Text style={styles.eventoExtra}>Audio registrado 🎤</Text>}
                 </View>
                 <View style={styles.eventoRight}>
-                  <View style={[styles.syncBadge, { backgroundColor: (SYNC_COLOR[ev.syncEstado] ?? "#ccc") + "22" }]}>
-                    <Text style={[styles.syncBadgeText, { color: SYNC_COLOR[ev.syncEstado] ?? "#ccc" }]}>
-                      {ev.syncEstado === "SINCRONIZADO" ? "Sync" : ev.syncEstado === "PENDIENTE" ? "Pend." : "Error"}
+                  <View style={[styles.syncBadge, { backgroundColor: "#f59e0b22" }]}>
+                    <Text style={[styles.syncBadgeText, { color: "#f59e0b" }]}>
+                      {aporteLocal.syncEstado === "RECHAZADO" ? "Error" : "Pend."}
                     </Text>
                   </View>
-                  {ev.fotoHash && <Ionicons name="camera" size={14} color="#888" style={{ marginTop: 4 }} />}
-                  {ev.audioHash && <Ionicons name="mic" size={14} color="#888" style={{ marginTop: 2 }} />}
                 </View>
               </View>
-            );
-          })
+              );
+            })()}
+
+            {/* Registros de campaña multi-técnico */}
+            {registrosCampana.map((reg) => {
+              const ESTADO_COLOR: Record<string, string> = {
+                COMPLETO:   "#10b981",
+                PARCIAL:    "#f59e0b",
+                ADULTERADO: "#ef4444",
+                INVALIDADO: "#9ca3af",
+              };
+              const estadoColor = ESTADO_COLOR[reg.estado] ?? "#888";
+              // Posiciones ya confirmadas en el servidor
+              const posicionesEnServidor = new Set(reg.aportes.map((a) => a.posicion));
+              // Si el técnico actual tiene aporte local para este registro (mismo campanaId)
+              // y su posición aún no está en el servidor, lo incluimos como "pendiente"
+              const aporteLocalEnEsteRegistro =
+                aporteLocal &&
+                aporteLocal.campanaId === reg.campana.id &&
+                !posicionesEnServidor.has(aporteLocal.posicion)
+                  ? aporteLocal
+                  : null;
+              const totalAportes = reg.aportes.length + (aporteLocalEnEsteRegistro ? 1 : 0);
+              return (
+                <View key={reg.id} style={styles.eventoCard}>
+                  <View style={styles.eventoLeft}>
+                    <View style={[styles.eventoIcono, { backgroundColor: "#f0f4ff" }]}>
+                      <Ionicons name="people" size={18} color="#4f46e5" />
+                    </View>
+                  </View>
+                  <View style={styles.eventoCentro}>
+                    <Text style={styles.eventoTipo}>
+                      Registro campaña #{reg.consecutivo}
+                    </Text>
+                    <Text style={[styles.eventoFecha, { color: "#4f46e5" }]}>
+                      {reg.campana.nombre}{reg.campana.codigo ? ` · ${reg.campana.codigo}` : ""}
+                    </Text>
+                    <Text style={styles.eventoFecha}>
+                      {reg.fechaEvento.substring(0, 16).replace("T", " ")}
+                    </Text>
+                    <Text style={styles.eventoExtra}>
+                      {totalAportes} de 4 técnicos aportaron
+                    </Text>
+                    {/* Aportes sincronizados con el servidor */}
+                    {reg.aportes.map((a) => {
+                      const camposTexto = Object.entries(a.campos as Record<string, unknown>)
+                        .filter(([, v]) => v !== null && v !== undefined && v !== "")
+                        .map(([k, v]) => `${k}: ${v}`)
+                        .join(" · ");
+                      return (
+                        <Text key={a.id} style={styles.aporteLinea} numberOfLines={2}>
+                          P{a.posicion}: {camposTexto || "—"}
+                          {a.fotoHash ? " 📷" : ""}{a.audioHash ? " 🎤" : ""}
+                        </Text>
+                      );
+                    })}
+                    {/* Aporte local pendiente de sincronizar para este registro */}
+                    {aporteLocalEnEsteRegistro && (() => {
+                      let campos: Record<string, unknown> = {};
+                      try { campos = JSON.parse(aporteLocalEnEsteRegistro.campos); } catch {}
+                      const camposTexto = Object.entries(campos)
+                        .filter(([, v]) => v !== null && v !== undefined && v !== "")
+                        .map(([k, v]) => `${k}: ${v}`)
+                        .join(" · ");
+                      return (
+                        <Text style={[styles.aporteLinea, { color: "#f59e0b" }]} numberOfLines={2}>
+                          P{aporteLocalEnEsteRegistro.posicion}: {camposTexto || "—"}
+                          {aporteLocalEnEsteRegistro.fotoHash ? " 📷" : ""}
+                          {aporteLocalEnEsteRegistro.audioHash ? " 🎤" : ""}
+                          {" ⏳"}
+                        </Text>
+                      );
+                    })()}
+                    {/* Posiciones que aún faltan (sin aporte local tampoco) */}
+                    {[1, 2, 3, 4].filter((pos) =>
+                      !posicionesEnServidor.has(pos) &&
+                      pos !== aporteLocalEnEsteRegistro?.posicion
+                    ).map((pos) => (
+                      <Text key={`falta-${pos}`} style={[styles.aporteLinea, { color: "#d1d5db" }]}>
+                        P{pos}: pendiente…
+                      </Text>
+                    ))}
+                  </View>
+                  <View style={styles.eventoRight}>
+                    <View style={[styles.syncBadge, { backgroundColor: estadoColor + "22" }]}>
+                      <Text style={[styles.syncBadgeText, { color: estadoColor }]}>
+                        {reg.estado}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
+
+            {/* Eventos clásicos de producción */}
+            {eventos.map((ev) => {
+              let extra: Record<string, string> = {};
+              try { extra = JSON.parse(ev.datosExtra); } catch {}
+              return (
+                <View key={ev.id} style={styles.eventoCard}>
+                  <View style={styles.eventoLeft}>
+                    <View style={[styles.eventoIcono, { backgroundColor: "#f0faf4" }]}>
+                      <Ionicons
+                        name={(TIPO_ICONO[ev.tipoEvento] ?? "ellipsis-horizontal") as any}
+                        size={18}
+                        color={VERDE}
+                      />
+                    </View>
+                  </View>
+                  <View style={styles.eventoCentro}>
+                    <Text style={styles.eventoTipo}>{ev.tipoEvento.replace(/_/g, " ")}</Text>
+                    <Text style={styles.eventoFecha}>{ev.fechaEvento.substring(0, 16).replace("T", " ")}</Text>
+                    {ev.descripcion ? (
+                      <Text style={styles.eventoDesc} numberOfLines={2}>{ev.descripcion}</Text>
+                    ) : null}
+                    {extra.alturaCm && (
+                      <Text style={styles.eventoExtra}>Altura: {extra.alturaCm} cm</Text>
+                    )}
+                  </View>
+                  <View style={styles.eventoRight}>
+                    <View style={[styles.syncBadge, { backgroundColor: (SYNC_COLOR[ev.syncEstado] ?? "#ccc") + "22" }]}>
+                      <Text style={[styles.syncBadgeText, { color: SYNC_COLOR[ev.syncEstado] ?? "#ccc" }]}>
+                        {ev.syncEstado === "SINCRONIZADO" ? "Sync" : ev.syncEstado === "PENDIENTE" ? "Pend." : "Error"}
+                      </Text>
+                    </View>
+                    {ev.fotoHash && <Ionicons name="camera" size={14} color="#888" style={{ marginTop: 4 }} />}
+                    {ev.audioHash && <Ionicons name="mic" size={14} color="#888" style={{ marginTop: 2 }} />}
+                  </View>
+                </View>
+              );
+            })}
+          </>
         )}
       </ScrollView>
     </View>
@@ -392,7 +556,6 @@ const styles = StyleSheet.create({
   btnNuevoEventoText: { color: "#fff", fontSize: 13, fontWeight: "600" },
   btnDeshabilitado:   { backgroundColor: "rgba(255,255,255,0.1)" },
   btnCompleto:        { backgroundColor: "rgba(16,185,129,0.3)" },
-  btnPendienteSync:   { backgroundColor: "rgba(245,158,11,0.5)" },
   tarjeta: {
     backgroundColor: "#fff", marginHorizontal: 16, marginTop: 12,
     borderRadius: 12, padding: 16,
@@ -441,6 +604,7 @@ const styles = StyleSheet.create({
   eventoFecha: { fontSize: 12, color: "#888", marginTop: 2 },
   eventoDesc: { fontSize: 12, color: "#666", marginTop: 4, lineHeight: 16 },
   eventoExtra: { fontSize: 11, color: "#888", marginTop: 2 },
+  aporteLinea: { fontSize: 11, color: "#555", marginTop: 2 },
   eventoRight: { alignItems: "flex-end", minWidth: 60 },
   syncBadge: { borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
   syncBadgeText: { fontSize: 10, fontWeight: "700" },

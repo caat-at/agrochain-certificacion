@@ -15,7 +15,7 @@ import {
   CampanaDetalle,
   PlantaCampana,
 } from "../src/services/campanas";
-import { yaAporteLocalExiste, listarAportesPendientes } from "../src/services/db";
+import { yaAporteLocalExiste, listarAportesDeCampana, obtenerSesion } from "../src/services/db";
 
 const VERDE = "#1a7f4b";
 
@@ -42,18 +42,13 @@ export default function CampanaDetalleScreen() {
   const cargar = useCallback(async () => {
     if (!loteId) return;
     try {
-      const [det, aportesPendientes] = await Promise.all([
-        cargarCampanaDesdeServidor(loteId),
-        listarAportesPendientes(),
-      ]);
+      const det = await cargarCampanaDesdeServidor(loteId);
       setDetalle(det);
-      // Construir set de plantaIds con aporte local pendiente para esta campaña
-      const idsCampana = campanaId as string;
-      const localSet = new Set(
-        aportesPendientes
-          .filter((a) => a.campanaId === idsCampana && a.syncEstado !== "RECHAZADO")
-          .map((a) => a.plantaId)
-      );
+      // Construir set de plantaIds con aporte local (PENDIENTE o SINCRONIZADO)
+      // Usar el campanaId real devuelto por el servidor, no el param de URL
+      const cid = det?.campana.id ?? (campanaId as string);
+      const aportesDeCampana = await listarAportesDeCampana(cid);
+      const localSet = new Set(aportesDeCampana.map((a) => a.plantaId));
       setAportesLocales(localSet);
     } catch (err) {
       Alert.alert("Error", String(err));
@@ -83,7 +78,10 @@ export default function CampanaDetalleScreen() {
     }
 
     // Verificar también contra aportes guardados localmente (pendientes de sincronizar)
-    const hayAporteLocal = await yaAporteLocalExiste(campanaId as string, planta.id);
+    const sesion = await obtenerSesion();
+    const hayAporteLocal = sesion
+      ? await yaAporteLocalExiste(campanaId as string, planta.id, sesion.userId)
+      : false;
     if (hayAporteLocal) {
       Alert.alert(
         "Aporte pendiente",
