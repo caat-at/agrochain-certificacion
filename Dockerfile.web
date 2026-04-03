@@ -1,0 +1,34 @@
+# Next.js web — monorepo pnpm
+FROM node:22-slim
+WORKDIR /app
+
+RUN corepack enable && corepack prepare pnpm@10.15.0 --activate
+
+# Copiar monorepo (web solo necesita shared, no database)
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
+COPY apps/web/              ./apps/web/
+COPY packages/shared/       ./packages/shared/
+
+# Instalar dependencias
+RUN pnpm install --frozen-lockfile
+
+# Compilar shared
+RUN pnpm --filter @agrochain/shared build
+
+# Build Next.js
+ARG API_URL=https://agrochainapi-production.up.railway.app
+ENV API_URL=${API_URL}
+ENV NEXT_TELEMETRY_DISABLED=1
+
+RUN pnpm --filter @agrochain/web build
+
+# Copiar archivos estáticos al standalone (deben existir después del build)
+RUN cp -r apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static
+RUN cp -r apps/web/public apps/web/.next/standalone/apps/web/public 2>/dev/null || true
+
+EXPOSE 3000
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+
+CMD ["node", "apps/web/.next/standalone/apps/web/server.js"]
