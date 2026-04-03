@@ -1,5 +1,5 @@
 [build]
-dockerfilePath = "Dockerfile.api"
+dockerfilePath = "Dockerfile.backend"
 
 [deploy]
 restartPolicyType = "on_failure"

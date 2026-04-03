@@ -1,0 +1,29 @@
+# Single stage — monorepo pnpm v4 (slim/glibc — libsql requiere glibc, no musl)
+ARG CACHEBUST=4
+FROM node:22-slim
+WORKDIR /app
+
+RUN corepack enable && corepack prepare pnpm@10.15.0 --activate
+
+# v2 — instalar tsx globalmente
+RUN npm install -g tsx@4.19.2 && tsx --version
+
+# Copiar todo el monorepo
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
+COPY apps/api/             ./apps/api/
+COPY packages/database/    ./packages/database/
+COPY packages/shared/      ./packages/shared/
+
+# Instalar dependencias
+RUN pnpm install --frozen-lockfile
+
+# Generar Prisma client y compilar paquetes workspace
+RUN pnpm --filter @agrochain/database db:generate
+RUN pnpm --filter @agrochain/shared build
+RUN pnpm --filter @agrochain/database build
+
+EXPOSE 3001
+
+ENV NODE_ENV=production
+
+CMD ["tsx", "apps/api/src/index.ts"]
