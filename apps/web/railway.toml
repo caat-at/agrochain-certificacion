@@ -1,7 +1,9 @@
 [build]
-dockerfilePath = "../../Dockerfile.web"
+builder = "NIXPACKS"
+buildCommand = "cd ../.. && pnpm install --frozen-lockfile && pnpm --filter @agrochain/shared build && pnpm --filter @agrochain/web build"
 
 [deploy]
+startCommand = "cd ../.. && pnpm --filter @agrochain/web start"
 healthcheckPath = "/"
 healthcheckTimeout = 60
 restartPolicyType = "on_failure"
