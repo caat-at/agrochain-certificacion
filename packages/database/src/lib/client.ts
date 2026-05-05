@@ -1,5 +1,4 @@
 import { PrismaClient } from "@prisma/client";
-import { PrismaLibSQL } from "@prisma/adapter-libsql";
 
 // Singleton para reutilizar conexion
 declare global {
@@ -9,30 +8,12 @@ declare global {
 
 function createPrismaClient(): PrismaClient {
   const url = process.env.DATABASE_URL;
-  const authToken = process.env.DATABASE_AUTH_TOKEN;
 
   if (!url) {
     throw new Error("DATABASE_URL no definida en variables de entorno");
   }
 
-  // Modo local (desarrollo sin Turso)
-  if (url.startsWith("file:")) {
-    return new PrismaClient({
-      log:
-        process.env.NODE_ENV === "development"
-          ? ["query", "error", "warn"]
-          : ["error"],
-    });
-  }
-
-  // Modo Turso (produccion / staging)
-  const adapter = new PrismaLibSQL({
-    url,
-    authToken,
-  });
-
   return new PrismaClient({
-    adapter,
     log:
       process.env.NODE_ENV === "development"
         ? ["query", "error", "warn"]

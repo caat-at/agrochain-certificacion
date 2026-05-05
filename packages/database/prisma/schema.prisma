@@ -1,6 +1,6 @@
 // =============================================================================
 // AGROCHAIN - Schema Prisma
-// Base de datos: SQLite via Turso (libSQL)
+// Base de datos: PostgreSQL (Amazon RDS)
 // Normas: ICA, NTC 5400 BPA, INVIMA - Colombia
 // =============================================================================
 
@@ -9,7 +9,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
