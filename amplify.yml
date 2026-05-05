@@ -1,0 +1,21 @@
+version: 1
+applications:
+  - frontend:
+      phases:
+        preBuild:
+          commands:
+            - npm install -g pnpm@10.15.0
+            - pnpm install --frozen-lockfile
+            - pnpm --filter @agrochain/shared build
+            - pnpm --filter @agrochain/database db:generate
+        build:
+          commands:
+            - pnpm --filter @agrochain/web build
+      artifacts:
+        baseDirectory: .next
+        files:
+          - '**/*'
+      cache:
+        paths:
+          - node_modules/**/*
+    appRoot: apps/web
