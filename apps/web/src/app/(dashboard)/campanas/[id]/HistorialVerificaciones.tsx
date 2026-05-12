@@ -27,7 +27,6 @@ export function HistorialVerificaciones({ campanaId, refrescadoEn }: { campanaId
   const [cargando, setCargando]             = useState(false);
   const [verificaciones, setVerificaciones] = useState<Verificacion[] | null>(null);
   const [ultimoRefresco, setUltimoRefresco] = useState(refrescadoEn ?? 0);
-  const [expandido, setExpandido]           = useState<string | null>(null);
   const [expandidoHash, setExpandidoHash]   = useState<string | null>(null);
 
   // Si el padre señala una nueva verificación, resetear caché para recargar
@@ -101,20 +100,12 @@ export function HistorialVerificaciones({ campanaId, refrescadoEn }: { campanaId
                     )}
                   </p>
                 </div>
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setExpandidoHash(expandidoHash === v.id ? null : v.id)}
-                    className="text-[11px] text-blue-500 hover:underline"
-                  >
-                    {expandidoHash === v.id ? "Ocultar hashes" : "Ver hashes"}
-                  </button>
-                  <button
-                    onClick={() => setExpandido(expandido === v.id ? null : v.id)}
-                    className="text-[11px] text-blue-500 hover:underline"
-                  >
-                    {expandido === v.id ? "Ocultar detalle" : "Ver detalle"}
-                  </button>
-                </div>
+                <button
+                  onClick={() => setExpandidoHash(expandidoHash === v.id ? null : v.id)}
+                  className="text-[11px] text-blue-500 hover:underline"
+                >
+                  {expandidoHash === v.id ? "Ocultar hashes" : "Ver hashes"}
+                </button>
               </div>
 
               {/* Hashes por registro */}
@@ -148,47 +139,6 @@ export function HistorialVerificaciones({ campanaId, refrescadoEn }: { campanaId
                 </div>
               )}
 
-              {/* Detalle por registro */}
-              {expandido === v.id && (
-                <div className="space-y-2">
-                  {v.detalles.length === 0 && (
-                    <p className="text-[11px] text-gray-400 px-1">
-                      No hay registros completos para verificar.
-                    </p>
-                  )}
-                  {v.detalles.map((d) => (
-                    <div
-                      key={d.id}
-                      className={`rounded-lg border px-3 py-2.5 space-y-1.5 text-[11px] ${
-                        d.resultado === "FALLA"
-                          ? "border-red-200 bg-red-50"
-                          : "border-gray-100 bg-gray-50"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-gray-600">
-                          {d.etiquetaRegistro ?? `REG-???`}
-                        </span>
-                        {d.resultado === "OK" ? (
-                          <span className="text-emerald-600 font-semibold">✓ OK</span>
-                        ) : (
-                          <span className="text-red-600 font-semibold">⚠ FALLA</span>
-                        )}
-                      </div>
-                      <div className="space-y-1">
-                        <div>
-                          <p className="text-gray-400 mb-0.5">Hash guardado (registro):</p>
-                          <p className="font-mono text-gray-700 break-all">{d.hashGuardado}</p>
-                        </div>
-                        <div>
-                          <p className="text-gray-400 mb-0.5">Hash recalculado (servidor):</p>
-                          <p className="font-mono text-gray-700 break-all">{d.hashCalculado}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           ))}
         </div>
