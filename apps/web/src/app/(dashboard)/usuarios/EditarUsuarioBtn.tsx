@@ -12,6 +12,8 @@ const ROLES = [
   { value: "ADMIN",         label: "Administrador" },
 ];
 
+const PASSWORD_REGEX = /^.{8,}$/;
+
 interface Props {
   usuario: {
     id: string;
@@ -20,6 +22,7 @@ interface Props {
     email: string | null;
     rol: string;
     activo: boolean;
+    tieneCuentaCognito: boolean;
   };
 }
 
@@ -53,7 +56,10 @@ export function EditarUsuarioBtn({ usuario }: Props) {
     if (!nombres.trim())   { setError("El nombre es obligatorio."); return; }
     if (!apellidos.trim()) { setError("Los apellidos son obligatorios."); return; }
     if (!email.trim())     { setError("El email es obligatorio."); return; }
-    if (password && password.length < 6) { setError("La contraseña debe tener al menos 6 caracteres."); return; }
+    if (password && !PASSWORD_REGEX.test(password)) {
+      setError("La contraseña debe tener mínimo 8 caracteres.");
+      return;
+    }
 
     setLoading(true);
     setError(null);
@@ -134,9 +140,15 @@ export function EditarUsuarioBtn({ usuario }: Props) {
                 <input
                   type="email"
                   value={email}
+                  disabled={usuario.tieneCuentaCognito}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-verde-400"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-verde-400 disabled:bg-gray-50 disabled:text-gray-400"
                 />
+                {usuario.tieneCuentaCognito && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    No se puede cambiar: es el usuario de acceso en Cognito. Desactiva la cuenta y crea una nueva si necesita otro correo.
+                  </p>
+                )}
               </div>
 
               {/* Rol + Estado */}
@@ -178,7 +190,7 @@ export function EditarUsuarioBtn({ usuario }: Props) {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Nueva contraseña (mín. 6 caracteres)"
+                  placeholder="Nueva contraseña (mín. 8 caracteres)"
                   className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-verde-400"
                 />
               </div>

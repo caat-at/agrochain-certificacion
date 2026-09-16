@@ -9,6 +9,8 @@ function getToken(): string {
   return match ? decodeURIComponent(match[1]) : "";
 }
 
+const PASSWORD_REGEX = /^.{8,}$/;
+
 const ROLES = [
   { value: "TECNICO",       label: "Técnico" },
   { value: "AGRICULTOR",    label: "Agricultor" },
@@ -47,7 +49,10 @@ export function NuevoUsuarioForm() {
     if (!nombres.trim()) { setError("El nombre es obligatorio."); return; }
     if (!apellidos.trim()) { setError("Los apellidos son obligatorios."); return; }
     if (!email.trim()) { setError("El email es obligatorio."); return; }
-    if (password.length < 6) { setError("La contraseña debe tener al menos 6 caracteres."); return; }
+    if (!PASSWORD_REGEX.test(password)) {
+      setError("La contraseña debe tener mínimo 8 caracteres.");
+      return;
+    }
 
     setLoading(true);
     setError(null);
@@ -153,7 +158,7 @@ export function NuevoUsuarioForm() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Mínimo 6 caracteres"
+              placeholder="Mínimo 8 caracteres"
               className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-verde-400"
             />
           </div>

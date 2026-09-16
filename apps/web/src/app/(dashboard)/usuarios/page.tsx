@@ -13,6 +13,7 @@ interface UsuarioItem {
   rol: string;
   activo: boolean;
   createdAt: string;
+  tieneCuentaCognito: boolean;
 }
 
 const ROL_BADGE: Record<string, string> = {
