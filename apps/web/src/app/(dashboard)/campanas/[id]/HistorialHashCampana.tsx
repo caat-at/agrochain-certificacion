@@ -10,6 +10,15 @@ interface VerificacionHash {
   hashGuardado: string;
   hashRecalculado: string;
   ejecutadoPor: { nombres: string; apellidos: string };
+  // Fase 2 — campos de verificación contra Polygon
+  hashGuardadoDB?:   string;
+  txHash?:           string | null;
+  hashEnPolygon?:    string | null;
+  blockNumber?:      number | null;
+  timestampPolygon?: number | null;
+  okDB?:             boolean | null;
+  okPolygon?:        boolean | null;
+  polygonError?:     string | null;
 }
 
 export function HistorialHashCampana({
@@ -25,7 +34,6 @@ export function HistorialHashCampana({
   const [ultimoRefresco, setUltimoRefresco] = useState(refrescadoEn ?? 0);
   const [expandido, setExpandido]       = useState<string | null>(null);
 
-  // Recargar si el padre señala nueva verificación
   if (refrescadoEn && refrescadoEn !== ultimoRefresco) {
     setUltimoRefresco(refrescadoEn);
     setHistorial(null);
@@ -90,6 +98,31 @@ export function HistorialHashCampana({
                     Por {v.ejecutadoPor.nombres} {v.ejecutadoPor.apellidos}
                     {" · "}{v.totalRegistros} registro(s) en el sello
                   </p>
+                  {/* Badges DB y Polygon */}
+                  <div className="flex gap-1.5 mt-1">
+                    {v.okDB !== undefined && v.okDB !== null && (
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                        v.okDB ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"
+                      }`}>
+                        DB {v.okDB ? "✓" : "✗"}
+                      </span>
+                    )}
+                    {v.txHash && v.okPolygon !== undefined && v.okPolygon !== null ? (
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                        v.okPolygon ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"
+                      }`}>
+                        Polygon {v.okPolygon ? "✓" : "✗"}
+                      </span>
+                    ) : v.txHash ? (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-yellow-50 text-yellow-600">
+                        Polygon sin datos
+                      </span>
+                    ) : (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-gray-100 text-gray-400">
+                        Sin txHash
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <button
                   onClick={() => setExpandido(expandido === v.id ? null : v.id)}
@@ -100,19 +133,80 @@ export function HistorialHashCampana({
               </div>
 
               {expandido === v.id && (
-                <div className={`rounded-lg border px-3 py-2.5 space-y-2 text-[11px] ${
+                <div className={`rounded-lg border px-3 py-2.5 space-y-3 text-[11px] ${
                   v.ok ? "border-gray-100 bg-gray-50" : "border-red-200 bg-red-50"
                 }`}>
+
+                  {/* Hash recalculado desde DB */}
                   <div>
-                    <p className="text-gray-400 mb-0.5">Hash sellado al cierre:</p>
-                    <p className="font-mono text-gray-700 break-all">{v.hashGuardado}</p>
+                    <p className="text-gray-400 mb-0.5 font-medium">Hash recalculado (desde datos en DB):</p>
+                    <p className="font-mono text-gray-700 break-all">{v.hashRecalculado}</p>
                   </div>
+
+                  {/* Hash sellado en DB al cierre */}
                   <div>
-                    <p className="text-gray-400 mb-0.5">Hash recalculado:</p>
-                    <p className={`font-mono break-all ${v.ok ? "text-gray-700" : "text-red-600"}`}>
-                      {v.hashRecalculado}
+                    <p className="text-gray-400 mb-0.5 font-medium">
+                      Hash sellado al cierre (DB):{" "}
+                      {v.okDB !== undefined && v.okDB !== null && (
+                        <span className={v.okDB ? "text-emerald-600" : "text-red-600"}>
+                          {v.okDB ? "✓ coincide" : "✗ NO coincide"}
+                        </span>
+                      )}
+                    </p>
+                    <p className={`font-mono break-all ${v.okDB === false ? "text-red-600" : "text-gray-700"}`}>
+                      {v.hashGuardadoDB ?? v.hashGuardado}
                     </p>
                   </div>
+
+                  {/* Hash en Polygon */}
+                  <div>
+                    <p className="text-gray-400 mb-0.5 font-medium">
+                      Hash registrado en Polygon:{" "}
+                      {v.txHash && v.okPolygon !== undefined && v.okPolygon !== null && (
+                        <span className={v.okPolygon ? "text-emerald-600" : "text-red-600"}>
+                          {v.okPolygon ? "✓ coincide" : "✗ NO coincide"}
+                        </span>
+                      )}
+                    </p>
+                    {v.hashEnPolygon ? (
+                      <>
+                        <p className={`font-mono break-all ${v.okPolygon === false ? "text-red-600" : "text-gray-700"}`}>
+                          {v.hashEnPolygon}
+                        </p>
+                        {v.blockNumber && (
+                          <p className="text-gray-400 mt-0.5">
+                            Bloque #{v.blockNumber}
+                            {v.timestampPolygon
+                              ? ` · ${new Date(v.timestampPolygon * 1000).toLocaleString("es-CO")}`
+                              : ""}
+                          </p>
+                        )}
+                      </>
+                    ) : v.polygonError ? (
+                      <p className="text-yellow-600">{v.polygonError}</p>
+                    ) : v.txHash ? (
+                      <p className="text-gray-400 italic">No se pudo leer el hash desde Polygon.</p>
+                    ) : (
+                      <p className="text-gray-400 italic">
+                        Sin txHash — la campaña no fue anclada en Polygon o es anterior a esta versión.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Link a PolygonScan */}
+                  {v.txHash && (
+                    <div>
+                      <p className="text-gray-400 mb-0.5 font-medium">Transacción en Polygon Amoy:</p>
+                      <a
+                        href={`https://amoy.polygonscan.com/tx/${v.txHash}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-mono text-blue-500 hover:underline break-all"
+                      >
+                        {v.txHash}
+                      </a>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

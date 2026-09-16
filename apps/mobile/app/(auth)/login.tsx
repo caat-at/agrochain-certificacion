@@ -36,6 +36,10 @@ export default function LoginScreen() {
         rol: resp.usuario.rol,
         token: resp.token,
         apiUrl: apiUrl.trim(),
+        // Posición y campos asignados se conocen recién al cargar una
+        // campaña (ver actualizarPosicionSesion en services/campanas.ts)
+        posicion: null,
+        camposAsignados: null,
       });
     } catch (err) {
       Alert.alert("Error de acceso", String(err));

@@ -1,226 +1,200 @@
-import { db } from "../lib/client.js";
+import pool from "../db/client.js";
 import { numeralesNtc5400 } from "./numerales-ntc5400.js";
 import { departamentos, municipios } from "./departamentos-colombia.js";
+import { stbnSubcriterios } from "./stbn-subcriterios.js";
 import { createHash } from "crypto";
 
 async function seed() {
-  console.log("🌱 Iniciando seed de AgroChain...\n");
+  console.log("🌱 Iniciando seed de AgroChain (PostgreSQL)...\n");
 
   // ── 1. DEPARTAMENTOS Y MUNICIPIOS ────────────────────────────────────────
   console.log("📍 Cargando departamentos de Colombia...");
   for (const dep of departamentos) {
-    await db.departamento.upsert({
-      where: { codigo: dep.codigo },
-      update: { nombre: dep.nombre },
-      create: { codigo: dep.codigo, nombre: dep.nombre },
-    });
+    await pool.query(
+      `INSERT INTO departamentos (codigo, nombre) VALUES ($1, $2)
+       ON CONFLICT (codigo) DO UPDATE SET nombre = EXCLUDED.nombre`,
+      [dep.codigo, dep.nombre]
+    );
   }
   console.log(`   ✅ ${departamentos.length} departamentos cargados`);
 
   console.log("📍 Cargando municipios...");
   for (const mun of municipios) {
-    await db.municipio.upsert({
-      where: { codigo: mun.codigo },
-      update: { nombre: mun.nombre, departamentoCod: mun.departamentoCod },
-      create: {
-        codigo: mun.codigo,
-        nombre: mun.nombre,
-        departamentoCod: mun.departamentoCod,
-      },
-    });
+    await pool.query(
+      `INSERT INTO municipios (codigo, nombre, departamento_cod) VALUES ($1, $2, $3)
+       ON CONFLICT (codigo) DO UPDATE SET nombre = EXCLUDED.nombre, departamento_cod = EXCLUDED.departamento_cod`,
+      [mun.codigo, mun.nombre, mun.departamentoCod]
+    );
   }
   console.log(`   ✅ ${municipios.length} municipios cargados`);
 
   // ── 2. NUMERALES NTC 5400 ────────────────────────────────────────────────
   console.log("\n📋 Cargando numerales NTC 5400 (BPA Colombia)...");
   for (const numeral of numeralesNtc5400) {
-    await db.numeralNtc5400.upsert({
-      where: { codigo: numeral.codigo },
-      update: {
-        seccion: numeral.seccion,
-        descripcion: numeral.descripcion,
-        criticidad: numeral.criticidad as "CRITICO" | "MAYOR" | "MENOR",
-        aplica: numeral.aplica,
-      },
-      create: {
-        codigo: numeral.codigo,
-        seccion: numeral.seccion,
-        descripcion: numeral.descripcion,
-        criticidad: numeral.criticidad as "CRITICO" | "MAYOR" | "MENOR",
-        aplica: numeral.aplica,
-      },
-    });
+    await pool.query(
+      `INSERT INTO numerales_ntc5400 (codigo, seccion, descripcion, criticidad, aplica)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (codigo) DO UPDATE SET
+         seccion = EXCLUDED.seccion, descripcion = EXCLUDED.descripcion,
+         criticidad = EXCLUDED.criticidad, aplica = EXCLUDED.aplica`,
+      [numeral.codigo, numeral.seccion, numeral.descripcion, numeral.criticidad, numeral.aplica]
+    );
   }
   console.log(`   ✅ ${numeralesNtc5400.length} numerales NTC 5400 cargados`);
 
+  // ── 2b. SUBCRITERIOS STBN (PNSS 0000404) ─────────────────────────────────
+  console.log("\n📋 Cargando subcriterios STBN (PlanetAI Nature Space)...");
+  for (const sub of stbnSubcriterios) {
+    await pool.query(
+      `INSERT INTO stbn_subcriterios
+         (codigo, pilar, nombre, orden, puntaje_alto, puntaje_bajo, descripcion_alto, descripcion_bajo)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (codigo) DO UPDATE SET
+         pilar = EXCLUDED.pilar, nombre = EXCLUDED.nombre, orden = EXCLUDED.orden,
+         puntaje_alto = EXCLUDED.puntaje_alto, puntaje_bajo = EXCLUDED.puntaje_bajo,
+         descripcion_alto = EXCLUDED.descripcion_alto, descripcion_bajo = EXCLUDED.descripcion_bajo`,
+      [
+        sub.codigo, sub.pilar, sub.nombre, sub.orden,
+        sub.puntajeAlto, sub.puntajeBajo, sub.descripcionAlto, sub.descripcionBajo,
+      ]
+    );
+  }
+  console.log(`   ✅ ${stbnSubcriterios.length} subcriterios STBN cargados`);
+
   // ── 3. ORGANIZACION CERTIFICADORA DEMO ───────────────────────────────────
   console.log("\n🏢 Creando organizacion certificadora demo...");
-  const orgId = "org_certificadora_demo";
-  await db.organizacion.upsert({
-    where: { nit: "900123456-7" },
-    update: {},
-    create: {
-      id: orgId,
-      nombre: "AgroCert Colombia S.A.S",
-      nit: "900123456-7",
-      tipo: "CERTIFICADORA",
-      resolucion: "ICA-RES-2024-001234",
-      vigencia: new Date("2026-12-31"),
-      direccion: "Cra 7 # 32-16 Of 501",
-      departamento: "11",
-      municipio: "11001",
-    },
-  });
+  const { rows: orgRows } = await pool.query(
+    `INSERT INTO organizaciones (nombre, nit, tipo, resolucion, vigencia, direccion, departamento, municipio)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+     ON CONFLICT (nit) DO UPDATE SET nombre = EXCLUDED.nombre
+     RETURNING id`,
+    [
+      "AgroCert Colombia S.A.S",
+      "900123456-7",
+      "CERTIFICADORA",
+      "ICA-RES-2024-001234",
+      "2026-12-31",
+      "Cra 7 # 32-16 Of 501",
+      "11",
+      "11001",
+    ]
+  );
+  const orgId = orgRows[0].id;
   console.log("   ✅ Organizacion demo creada");
 
-  // Contraseña demo: "password123" → SHA256
+  // Contraseña demo: "password123" → SHA256 (bcrypt llega en Fase 2 de auth)
   const passDemo = createHash("sha256").update("password123", "utf8").digest("hex");
 
-  // ── 4. USUARIO ADMIN ─────────────────────────────────────────────────────
   console.log("\n👤 Creando usuarios...");
-  const adminId = "usr_admin_001";
-  await db.usuario.upsert({
-    where: { numeroDocumento: "1000000001" },
-    update: { passwordHash: passDemo },
-    create: {
-      id: adminId,
-      nombres: "Admin",
-      apellidos: "AgroChain",
-      tipoDocumento: "CC",
-      numeroDocumento: "1000000001",
-      email: "admin@agrochain.co",
-      telefono: "3001234567",
-      rol: "ADMIN",
-      passwordHash: passDemo,
-    },
-  });
+
+  const adminId = await pool
+    .query(
+      `INSERT INTO usuarios (nombres, apellidos, tipo_documento, numero_documento, email, telefono, rol, password_hash)
+       VALUES ('Admin','AgroChain','CC','1000000001','admin@agrochain.co','3001234567','ADMIN',$1)
+       ON CONFLICT (numero_documento) DO UPDATE SET password_hash = EXCLUDED.password_hash
+       RETURNING id`,
+      [passDemo]
+    )
+    .then((r) => r.rows[0].id as string);
   console.log("   ✅ admin  (admin@agrochain.co)");
 
-  // ── 5. AGRICULTOR DEMO ───────────────────────────────────────────────────
-  const agricultorId = "usr_agricultor_001";
-  await db.usuario.upsert({
-    where: { numeroDocumento: "1032456789" },
-    update: { passwordHash: passDemo },
-    create: {
-      id: agricultorId,
-      nombres: "Carlos Alberto",
-      apellidos: "Gomez Zapata",
-      tipoDocumento: "CC",
-      numeroDocumento: "1032456789",
-      email: "agricultor@agrochain.co",
-      telefono: "3112345678",
-      rol: "AGRICULTOR",
-      passwordHash: passDemo,
-    },
-  });
+  const agricultorId = await pool
+    .query(
+      `INSERT INTO usuarios (nombres, apellidos, tipo_documento, numero_documento, email, telefono, rol, password_hash)
+       VALUES ('Carlos Alberto','Gomez Zapata','CC','1032456789','agricultor@agrochain.co','3112345678','AGRICULTOR',$1)
+       ON CONFLICT (numero_documento) DO UPDATE SET password_hash = EXCLUDED.password_hash
+       RETURNING id`,
+      [passDemo]
+    )
+    .then((r) => r.rows[0].id as string);
   console.log("   ✅ agricultor  (agricultor@agrochain.co)");
 
-  // ── 6. INSPECTOR DEMO ────────────────────────────────────────────────────
-  const inspectorId = "usr_inspector_001";
-  await db.usuario.upsert({
-    where: { numeroDocumento: "79865432" },
-    update: { passwordHash: passDemo, email: "inspector@agrochain.co" },
-    create: {
-      id: inspectorId,
-      nombres: "Maria Fernanda",
-      apellidos: "Torres Rincon",
-      tipoDocumento: "CC",
-      numeroDocumento: "79865432",
-      email: "inspector@agrochain.co",
-      telefono: "3209876543",
-      rol: "INSPECTOR_BPA",
-      passwordHash: passDemo,
-    },
-  });
-  await db.usuarioOrganizacion.upsert({
-    where: { usuarioId_organizacionId: { usuarioId: inspectorId, organizacionId: orgId } },
-    update: {},
-    create: { usuarioId: inspectorId, organizacionId: orgId, cargo: "Inspector BPA Senior" },
-  });
+  const inspectorId = await pool
+    .query(
+      `INSERT INTO usuarios (nombres, apellidos, tipo_documento, numero_documento, email, telefono, rol, password_hash)
+       VALUES ('Maria Fernanda','Torres Rincon','CC','79865432','inspector@agrochain.co','3209876543','INSPECTOR_BPA',$1)
+       ON CONFLICT (numero_documento) DO UPDATE SET password_hash = EXCLUDED.password_hash, email = EXCLUDED.email
+       RETURNING id`,
+      [passDemo]
+    )
+    .then((r) => r.rows[0].id as string);
+  await pool.query(
+    `INSERT INTO usuario_organizacion (usuario_id, organizacion_id, cargo) VALUES ($1,$2,$3)
+     ON CONFLICT (usuario_id, organizacion_id) DO NOTHING`,
+    [inspectorId, orgId, "Inspector BPA Senior"]
+  );
   console.log("   ✅ inspector_bpa  (inspector@agrochain.co)");
 
-  // ── 7. USUARIO CERTIFICADORA ─────────────────────────────────────────────
-  const certificadoraId = "usr_certificadora_001";
-  await db.usuario.upsert({
-    where: { numeroDocumento: "52789012" },
-    update: { passwordHash: passDemo, email: "certificador@agrochain.co" },
-    create: {
-      id: certificadoraId,
-      nombres: "Sandra Milena",
-      apellidos: "Ospina Vargas",
-      tipoDocumento: "CC",
-      numeroDocumento: "52789012",
-      email: "certificador@agrochain.co",
-      telefono: "3156789012",
-      rol: "CERTIFICADORA",
-      passwordHash: passDemo,
-    },
-  });
-  await db.usuarioOrganizacion.upsert({
-    where: { usuarioId_organizacionId: { usuarioId: certificadoraId, organizacionId: orgId } },
-    update: {},
-    create: { usuarioId: certificadoraId, organizacionId: orgId, cargo: "Certificadora BPA Senior" },
-  });
+  const certificadoraId = await pool
+    .query(
+      `INSERT INTO usuarios (nombres, apellidos, tipo_documento, numero_documento, email, telefono, rol, password_hash)
+       VALUES ('Sandra Milena','Ospina Vargas','CC','52789012','certificador@agrochain.co','3156789012','CERTIFICADORA',$1)
+       ON CONFLICT (numero_documento) DO UPDATE SET password_hash = EXCLUDED.password_hash, email = EXCLUDED.email
+       RETURNING id`,
+      [passDemo]
+    )
+    .then((r) => r.rows[0].id as string);
+  await pool.query(
+    `INSERT INTO usuario_organizacion (usuario_id, organizacion_id, cargo) VALUES ($1,$2,$3)
+     ON CONFLICT (usuario_id, organizacion_id) DO NOTHING`,
+    [certificadoraId, orgId, "Certificadora BPA Senior"]
+  );
   console.log("   ✅ certificadora  (certificador@agrochain.co)");
 
-  // ── 8. TÉCNICOS (4) ──────────────────────────────────────────────────────
-  const tecnicoIds = [
-    "usr_tecnico_001",
-    "usr_tecnico_002",
-    "usr_tecnico_003",
-    "usr_tecnico_004",
+  // ── TÉCNICOS (4) ─────────────────────────────────────────────────────────
+  const tecnicosData = [
+    { nombres: "Juan Carlos",   apellidos: "Perez Lopez",  doc: "1001001001", email: "tecnico1@agrochain.co" },
+    { nombres: "Maria Isabel",  apellidos: "Gomez Ruiz",   doc: "1001001002", email: "tecnico2@agrochain.co" },
+    { nombres: "Luis Fernando", apellidos: "Torres Silva", doc: "1001001003", email: "tecnico3@agrochain.co" },
+    { nombres: "Ana Patricia",  apellidos: "Diaz Moreno",  doc: "1001001004", email: "tecnico4@agrochain.co" },
   ];
-  const tecnicos = [
-    { id: "usr_tecnico_001", nombres: "Juan Carlos",    apellidos: "Perez Lopez",    doc: "1001001001", email: "tecnico1@agrochain.co" },
-    { id: "usr_tecnico_002", nombres: "Maria Isabel",   apellidos: "Gomez Ruiz",     doc: "1001001002", email: "tecnico2@agrochain.co" },
-    { id: "usr_tecnico_003", nombres: "Luis Fernando",  apellidos: "Torres Silva",   doc: "1001001003", email: "tecnico3@agrochain.co" },
-    { id: "usr_tecnico_004", nombres: "Ana Patricia",   apellidos: "Diaz Moreno",    doc: "1001001004", email: "tecnico4@agrochain.co" },
-  ];
-  for (const t of tecnicos) {
-    await db.usuario.upsert({
-      where: { numeroDocumento: t.doc },
-      update: { passwordHash: passDemo },
-      create: {
-        id:              t.id,
-        nombres:         t.nombres,
-        apellidos:       t.apellidos,
-        tipoDocumento:   "CC",
-        numeroDocumento: t.doc,
-        email:           t.email,
-        rol:             "TECNICO",
-        passwordHash:    passDemo,
-      },
-    });
+  const tecnicoIds: string[] = [];
+  for (const t of tecnicosData) {
+    const id = await pool
+      .query(
+        `INSERT INTO usuarios (nombres, apellidos, tipo_documento, numero_documento, email, rol, password_hash)
+         VALUES ($1,$2,'CC',$3,$4,'TECNICO',$5)
+         ON CONFLICT (numero_documento) DO UPDATE SET password_hash = EXCLUDED.password_hash
+         RETURNING id`,
+        [t.nombres, t.apellidos, t.doc, t.email, passDemo]
+      )
+      .then((r) => r.rows[0].id as string);
+    tecnicoIds.push(id);
     console.log(`   ✅ ${t.email}`);
   }
 
-  // ── 8. PREDIO DEMO ───────────────────────────────────────────────────────
+  // ── PREDIO DEMO ──────────────────────────────────────────────────────────
   console.log("\n🏡 Creando predio demo...");
-  const predioId = "pred_001";
-  await db.predio.upsert({
-    where: { id: predioId },
-    update: {},
-    create: {
-      id: predioId,
-      agricultorId,
-      nombrePredio: "Finca El Paraiso",
-      codigoIca: "ANT-05-2024-00001",
-      departamento: "05",
-      municipio: "05615",
-      vereda: "La Quiebra",
-      latitud: 6.1538,
-      longitud: -75.3741,
-      altitudMsnm: 2150,
-      areaTotalHa: 8.5,
-      areaProductivaHa: 6.0,
-      fuenteAgua: "RIO",
-      tipoSuelo: "Franco arcilloso",
-      usoPrevio: "Pastizal",
-    },
-  });
+  const predioId = await pool
+    .query(
+      `INSERT INTO predios
+         (agricultor_id, nombre_predio, codigo_ica, departamento, municipio, vereda,
+          latitud, longitud, altitud_msnm, area_total_ha, area_productiva_ha,
+          fuente_agua, tipo_suelo, uso_previo)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+       ON CONFLICT (codigo_ica) DO UPDATE SET nombre_predio = EXCLUDED.nombre_predio
+       RETURNING id`,
+      [
+        agricultorId,
+        "Finca El Paraiso",
+        "ANT-05-2024-00001",
+        "05",
+        "05615",
+        "La Quiebra",
+        6.1538,
+        -75.3741,
+        2150,
+        8.5,
+        6.0,
+        "RIO",
+        "Franco arcilloso",
+        "Pastizal",
+      ]
+    )
+    .then((r) => r.rows[0].id as string);
   console.log("   ✅ Finca El Paraíso — Rionegro, Antioquia");
 
-  // ── 9. LOTE 1 — Café Castillo ─────────────────────────────────────────────
+  // ── LOTE 1 — Café Castillo ───────────────────────────────────────────────
   console.log("\n🌿 Creando lotes...");
   const loteData1 = {
     codigoLote: "COL-05-2024-00001", predioId, agricultorId,
@@ -229,22 +203,23 @@ async function seed() {
   };
   const dataHash1 = createHash("sha256").update(JSON.stringify(loteData1)).digest("hex");
 
-  await db.lote.upsert({
-    where: { codigoLote: "COL-05-2024-00001" },
-    update: {},
-    create: {
-      id: "lote_001", predioId, agricultorId,
-      codigoLote: "COL-05-2024-00001",
-      especie: "Coffea arabica", variedad: "Castillo Colombia",
-      areaHa: 2.5, fechaSiembra: new Date("2024-03-01"),
-      fechaCosechaEst: new Date("2024-11-01"),
-      destinoProduccion: "EXPORTACION", estado: "EN_PRODUCCION",
-      dataHash: dataHash1, syncEstado: "VERIFICADO",
-    },
-  });
+  const lote1Id = await pool
+    .query(
+      `INSERT INTO lotes
+         (predio_id, agricultor_id, codigo_lote, especie, variedad, area_ha,
+          fecha_siembra, fecha_cosecha_est, destino_produccion, estado, data_hash, sync_estado)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'EXPORTACION','EN_PRODUCCION',$9,'VERIFICADO')
+       ON CONFLICT (codigo_lote) DO UPDATE SET especie = EXCLUDED.especie
+       RETURNING id`,
+      [
+        predioId, agricultorId, "COL-05-2024-00001", "Coffea arabica", "Castillo Colombia", 2.5,
+        "2024-03-01", "2024-11-01", dataHash1,
+      ]
+    )
+    .then((r) => r.rows[0].id as string);
   console.log("   ✅ lote_001 — Café Castillo Colombia");
 
-  // ── 10. LOTE 2 — Aguacate Hass ────────────────────────────────────────────
+  // ── LOTE 2 — Aguacate Hass ───────────────────────────────────────────────
   const loteData2 = {
     codigoLote: "COL-05-2024-00002", predioId, agricultorId,
     especie: "Persea americana", variedad: "Hass",
@@ -252,161 +227,108 @@ async function seed() {
   };
   const dataHash2 = createHash("sha256").update(JSON.stringify(loteData2)).digest("hex");
 
-  await db.lote.upsert({
-    where: { codigoLote: "COL-05-2024-00002" },
-    update: {},
-    create: {
-      id: "lote_002", predioId, agricultorId,
-      codigoLote: "COL-05-2024-00002",
-      especie: "Persea americana", variedad: "Hass",
-      areaHa: 1.8, fechaSiembra: new Date("2024-05-15"),
-      fechaCosechaEst: new Date("2026-05-01"),
-      destinoProduccion: "EXPORTACION", sistemaRiego: "GOTEO",
-      estado: "EN_PRODUCCION",
-      dataHash: dataHash2, syncEstado: "VERIFICADO",
-    },
-  });
+  const lote2Id = await pool
+    .query(
+      `INSERT INTO lotes
+         (predio_id, agricultor_id, codigo_lote, especie, variedad, area_ha,
+          fecha_siembra, fecha_cosecha_est, destino_produccion, sistema_riego, estado, data_hash, sync_estado)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'EXPORTACION','GOTEO','EN_PRODUCCION',$9,'VERIFICADO')
+       ON CONFLICT (codigo_lote) DO UPDATE SET especie = EXCLUDED.especie
+       RETURNING id`,
+      [
+        predioId, agricultorId, "COL-05-2024-00002", "Persea americana", "Hass", 1.8,
+        "2024-05-15", "2026-05-01", dataHash2,
+      ]
+    )
+    .then((r) => r.rows[0].id as string);
   console.log("   ✅ lote_002 — Aguacate Hass");
 
-  // ── 11. PLANTAS LOTE 1 (10 plantas) ──────────────────────────────────────
+  // ── PLANTAS LOTE 1 (10 plantas) ──────────────────────────────────────────
   console.log("\n🌱 Creando 10 plantas para lote_001...");
   for (let i = 1; i <= 10; i++) {
-    const pid = `planta_l1_${String(i).padStart(3, "0")}`;
     const num = String(i).padStart(3, "0");
-    await db.planta.upsert({
-      where: { id: pid },
-      update: {},
-      create: {
-        id:                      pid,
-        loteId:                  "lote_001",
-        codigoPlanta:            `COL-05-2024-00001-P${num}`,
-        numeroPlanta:            String(i),
-        especie:                 "Coffea arabica",
-        variedad:                "Castillo Colombia",
-        origenMaterial:          "VIVERO_CERTIFICADO",
-        procedenciaVivero:       "Vivero Agroforestal Antioquia — Reg. ICA 2024-VIV-001",
-        fechaSiembra:            new Date("2024-03-01"),
-        alturaCmInicial:         30.0 + i * 0.5,
-        diametroTalloCmInicial:  0.7 + i * 0.02,
-        numHojasInicial:         5 + (i % 4),
-        estadoFenologicoInicial: "Plántula",
-        latitud:                 6.15400 + i * 0.00010,
-        longitud:                -75.37400 - i * 0.00010,
-        altitudMsnm:             2148.0 + i * 0.5,
-        registradoPor:           adminId,
-        activo:                  true,
-      },
-    });
+    await pool.query(
+      `INSERT INTO plantas
+         (lote_id, codigo_planta, numero_planta, especie, variedad, origen_material, procedencia_vivero,
+          fecha_siembra, altura_cm_inicial, diametro_tallo_cm_inicial, num_hojas_inicial,
+          estado_fenologico_inicial, latitud, longitud, altitud_msnm, registrado_por, activo)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,true)
+       ON CONFLICT (lote_id, codigo_planta) DO NOTHING`,
+      [
+        lote1Id, `COL-05-2024-00001-P${num}`, String(i), "Coffea arabica", "Castillo Colombia",
+        "VIVERO_CERTIFICADO", "Vivero Agroforestal Antioquia — Reg. ICA 2024-VIV-001",
+        "2024-03-01", 30.0 + i * 0.5, 0.7 + i * 0.02, 5 + (i % 4), "Plántula",
+        6.154 + i * 0.0001, -75.374 - i * 0.0001, 2148.0 + i * 0.5, adminId,
+      ]
+    );
   }
   console.log("   ✅ 10 plantas lote_001 creadas");
 
-  // ── 12. PLANTAS LOTE 2 (10 plantas) ──────────────────────────────────────
+  // ── PLANTAS LOTE 2 (10 plantas) ──────────────────────────────────────────
   console.log("🌱 Creando 10 plantas para lote_002...");
   for (let i = 1; i <= 10; i++) {
-    const pid = `planta_l2_${String(i).padStart(3, "0")}`;
     const num = String(i).padStart(3, "0");
-    await db.planta.upsert({
-      where: { id: pid },
-      update: {},
-      create: {
-        id:                      pid,
-        loteId:                  "lote_002",
-        codigoPlanta:            `COL-05-2024-00002-P${num}`,
-        numeroPlanta:            String(i),
-        especie:                 "Persea americana",
-        variedad:                "Hass",
-        origenMaterial:          "INJERTO",
-        procedenciaVivero:       "Vivero El Aguacatal — Reg. ICA 2024-VIV-045",
-        fechaSiembra:            new Date("2024-05-15"),
-        alturaCmInicial:         44.0 + i * 0.5,
-        diametroTalloCmInicial:  1.1 + i * 0.03,
-        numHojasInicial:         7 + (i % 3),
-        estadoFenologicoInicial: "Trasplante",
-        latitud:                 6.15500 + i * 0.00010,
-        longitud:                -75.37520 - i * 0.00010,
-        altitudMsnm:             2152.0 + i * 0.5,
-        registradoPor:           adminId,
-        activo:                  true,
-      },
-    });
+    await pool.query(
+      `INSERT INTO plantas
+         (lote_id, codigo_planta, numero_planta, especie, variedad, origen_material, procedencia_vivero,
+          fecha_siembra, altura_cm_inicial, diametro_tallo_cm_inicial, num_hojas_inicial,
+          estado_fenologico_inicial, latitud, longitud, altitud_msnm, registrado_por, activo)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,true)
+       ON CONFLICT (lote_id, codigo_planta) DO NOTHING`,
+      [
+        lote2Id, `COL-05-2024-00002-P${num}`, String(i), "Persea americana", "Hass",
+        "INJERTO", "Vivero El Aguacatal — Reg. ICA 2024-VIV-045",
+        "2024-05-15", 44.0 + i * 0.5, 1.1 + i * 0.03, 7 + (i % 3), "Trasplante",
+        6.155 + i * 0.0001, -75.3752 - i * 0.0001, 2152.0 + i * 0.5, adminId,
+      ]
+    );
   }
   console.log("   ✅ 10 plantas lote_002 creadas");
 
-  // ── 13. CAMPAÑA ABIERTA — lote_001 ───────────────────────────────────────
+  // ── CAMPAÑA ABIERTA — lote_001 ───────────────────────────────────────────
   console.log("\n📣 Creando campaña ABIERTA para lote_001...");
-  const campanaId = "campana_001";
 
-  // Campos requeridos para SIEMBRA — todos los campos de los 4 técnicos
-  const camposRequeridos = JSON.stringify([
-    "descripcion",        // Posición 1
-    "foto",               // Posición 1
-    "audio",              // Posición 1
-    "alturaCm",           // Posición 2
-    "diametroTalloCm",    // Posición 2
-    "numHojas",           // Posición 2
-    "estadoFenologico",   // Posición 3
-    "estadoSanitario",    // Posición 3
-    "profundidadCm",      // Posición 4
-  ]);
+  const camposRequeridos = [
+    "descripcion", "foto", "audio",             // Posición 1
+    "alturaCm", "diametroTalloCm", "numHojas",  // Posición 2
+    "estadoFenologico", "estadoSanitario",      // Posición 3
+    "profundidadCm",                             // Posición 4
+  ];
 
-  await db.campana.upsert({
-    where: { id: campanaId },
-    update: {},
-    create: {
-      id:              campanaId,
-      loteId:          "lote_001",
-      nombre:          "Campaña Siembra Marzo 2026",
-      descripcion:     "Registro inicial de siembra — 10 plantas Café Castillo",
-      estado:          "ABIERTA",
-      camposRequeridos,
-      creadaPor:       adminId,
-      fechaApertura:   new Date("2026-03-01"),
-    },
-  });
+  const campanaId = await pool
+    .query(
+      `INSERT INTO campanas (lote_id, nombre, descripcion, estado, campos_requeridos, creada_por, fecha_apertura)
+       VALUES ($1,$2,$3,'ABIERTA',$4::jsonb,$5,$6)
+       RETURNING id`,
+      [
+        lote1Id,
+        "Campaña Siembra Marzo 2026",
+        "Registro inicial de siembra — 10 plantas Café Castillo",
+        JSON.stringify(camposRequeridos),
+        adminId,
+        "2026-03-01",
+      ]
+    )
+    .then((r) => r.rows[0].id as string);
   console.log("   ✅ Campaña Siembra Marzo 2026 — ABIERTA");
 
-  // ── 14. ASIGNAR TÉCNICOS A POSICIONES ────────────────────────────────────
+  // ── ASIGNAR TÉCNICOS A POSICIONES ────────────────────────────────────────
   console.log("👷 Asignando técnicos a posiciones de la campaña...");
 
   const asignaciones = [
-    {
-      id:        "ct_001_pos1",
-      posicion:  1,
-      tecnicoId: tecnicoIds[0],
-      campos:    JSON.stringify(["descripcion", "foto", "audio"]),
-    },
-    {
-      id:        "ct_001_pos2",
-      posicion:  2,
-      tecnicoId: tecnicoIds[1],
-      campos:    JSON.stringify(["alturaCm", "diametroTalloCm", "numHojas", "foto", "audio"]),
-    },
-    {
-      id:        "ct_001_pos3",
-      posicion:  3,
-      tecnicoId: tecnicoIds[2],
-      campos:    JSON.stringify(["estadoFenologico", "estadoSanitario", "foto", "audio"]),
-    },
-    {
-      id:        "ct_001_pos4",
-      posicion:  4,
-      tecnicoId: tecnicoIds[3],
-      campos:    JSON.stringify(["profundidadCm", "foto", "audio"]),
-    },
+    { posicion: 1, tecnicoId: tecnicoIds[0], campos: ["descripcion", "foto", "audio"] },
+    { posicion: 2, tecnicoId: tecnicoIds[1], campos: ["alturaCm", "diametroTalloCm", "numHojas", "foto", "audio"] },
+    { posicion: 3, tecnicoId: tecnicoIds[2], campos: ["estadoFenologico", "estadoSanitario", "foto", "audio"] },
+    { posicion: 4, tecnicoId: tecnicoIds[3], campos: ["profundidadCm", "foto", "audio"] },
   ];
 
   for (const a of asignaciones) {
-    await db.campanaTecnico.upsert({
-      where: { campanaId_posicion: { campanaId, posicion: a.posicion } },
-      update: { tecnicoId: a.tecnicoId, camposAsignados: a.campos },
-      create: {
-        id:             a.id,
-        campanaId,
-        posicion:       a.posicion,
-        tecnicoId:      a.tecnicoId,
-        camposAsignados: a.campos,
-      },
-    });
+    await pool.query(
+      `INSERT INTO campana_tecnicos (campana_id, posicion, tecnico_id, campos_asignados)
+       VALUES ($1,$2,$3,$4::jsonb)
+       ON CONFLICT (campana_id, posicion) DO UPDATE SET tecnico_id = EXCLUDED.tecnico_id, campos_asignados = EXCLUDED.campos_asignados`,
+      [campanaId, a.posicion, a.tecnicoId, JSON.stringify(a.campos)]
+    );
   }
 
   console.log("   ✅ Posición 1 → tecnico1 (descripcion, foto, audio)");
@@ -414,7 +336,7 @@ async function seed() {
   console.log("   ✅ Posición 3 → tecnico3 (estadoFenologico, estadoSanitario, foto, audio)");
   console.log("   ✅ Posición 4 → tecnico4 (profundidadCm, foto, audio)");
 
-  // ── 15. lote_002 — SIN CAMPAÑA (intencional para pruebas) ─────────────────
+  // ── lote_002 — SIN CAMPAÑA (intencional para pruebas) ────────────────────
   console.log("\n   ℹ️  lote_002 — sin campaña activa (intencional)");
 
   // ── RESUMEN ───────────────────────────────────────────────────────────────
@@ -438,7 +360,7 @@ async function seed() {
   console.log(`     - lote_001   : Café Castillo — 10 plantas — campaña ABIERTA`);
   console.log(`     - lote_002   : Aguacate Hass — 10 plantas — sin campaña`);
   console.log(`   Campañas       : 1  (Siembra Marzo 2026 — ABIERTA)`);
-  console.log(`   Técnicos asig. : 4  (posiciones 1-4 en campaña_001)`);
+  console.log(`   Técnicos asig. : 4  (posiciones 1-4 en campana)`);
   console.log("─────────────────────────────────────────────────────────");
 }
 
@@ -448,5 +370,5 @@ seed()
     process.exit(1);
   })
   .finally(async () => {
-    await db.$disconnect();
+    await pool.end();
   });

@@ -326,6 +326,7 @@ export default function RegistrarEventoScreen() {
         fechaEvento: fechaIso,
         latitud:     coordenadas?.lat ?? null,
         longitud:    coordenadas?.lon ?? null,
+        altitudMsnm: null, // este formulario no captura altitud, solo lat/lon
         tecnicoId:   sesion.userId,
         descripcion: descripcion.trim(),
         datosExtra:  JSON.stringify(datosExtraFiltrados),

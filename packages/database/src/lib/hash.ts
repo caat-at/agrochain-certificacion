@@ -270,6 +270,64 @@ export function verificarCamposCompletos(
   };
 }
 
+// =============================================================================
+// MODULO EUDR — Declaracion de cumplimiento (Reglamento UE 2023/1115)
+// =============================================================================
+
+/**
+ * Genera el hash de integridad de una declaracion EUDR (a nivel de Lote).
+ * SHA256(loteId + poligonoId + fechaCorte + libreDeforestacion + declaradoPor + timestamp)
+ * Se genera al crear la declaracion en estado BORRADOR y se recalcula al
+ * verificar; una vez FIRMADA/ANCLADA_BLOCKCHAIN es inmutable (ver 02_eudr.sql).
+ */
+export function generarContentHashDeclaracionEudr(data: {
+  loteId: string;
+  poligonoId: string;
+  fechaCorte: string; // ISO date, ej. "2020-12-31"
+  libreDeforestacion: boolean;
+  declaradoPor: string;
+  timestamp: string; // ISO 8601 exacto
+}): string {
+  const payload = JSON.stringify({
+    loteId: data.loteId,
+    poligonoId: data.poligonoId,
+    fechaCorte: data.fechaCorte,
+    libreDeforestacion: data.libreDeforestacion,
+    declaradoPor: data.declaradoPor,
+    timestamp: data.timestamp,
+  });
+  return createHash("sha256").update(payload, "utf8").digest("hex");
+}
+
+// =============================================================================
+// MODULO STBN — Evaluacion de pilares (PNSS 0000404, PlanetAI Nature Space)
+// =============================================================================
+
+/**
+ * Genera el hash de integridad de una evaluacion STBN finalizada (a nivel de
+ * Predio). SHA256 de los 10 puntajes asignados por el evaluador, en orden
+ * fijo por codigo de subcriterio para determinismo. Se genera una sola vez,
+ * al finalizar la evaluacion (no en cada calificacion individual); una vez
+ * FINALIZADA es inmutable (ver 04_pilares_stbn.sql).
+ */
+export function generarContentHashEvaluacionStbn(data: {
+  predioId: string;
+  calificaciones: Array<{ subcriterioCodigo: string; nivel: string; puntajeAsignado: number }>;
+  evaluadoPor: string;
+  timestamp: string; // ISO 8601 exacto
+}): string {
+  const calificacionesOrdenadas = [...data.calificaciones].sort((a, b) =>
+    a.subcriterioCodigo.localeCompare(b.subcriterioCodigo)
+  );
+  const payload = JSON.stringify({
+    predioId: data.predioId,
+    calificaciones: calificacionesOrdenadas,
+    evaluadoPor: data.evaluadoPor,
+    timestamp: data.timestamp,
+  });
+  return createHash("sha256").update(payload, "utf8").digest("hex");
+}
+
 // Ordena objeto recursivamente para hash determinista
 function sortObject(obj: Record<string, unknown>): Record<string, unknown> {
   return Object.keys(obj)

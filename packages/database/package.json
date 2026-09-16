@@ -15,19 +15,15 @@
     "build": "tsc",
     "dev": "node ../../node_modules/typescript/bin/tsc --watch",
     "typecheck": "tsc --noEmit",
-    "db:generate": "prisma generate",
-    "db:push": "prisma db push",
-    "db:migrate": "prisma migrate dev",
-    "db:seed": "tsx src/seed/index.ts",
-    "db:studio": "prisma studio"
+    "db:seed": "tsx src/seed/index.ts"
   },
   "dependencies": {
-    "prisma": "^6.2.0",
-    "@prisma/client": "^6.2.0"
+    "pg": "^8.20.0"
   },
   "devDependencies": {
-    "typescript": "^5.7.2",
     "@types/node": "^22.10.0",
-    "tsx": "^4.19.2"
+    "@types/pg": "^8.11.6",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
   }
 }

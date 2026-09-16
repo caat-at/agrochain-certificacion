@@ -1,93 +1,46 @@
 import type { FastifyInstance } from "fastify";
-import { db } from "@agrochain/database";
+import { getMetricasDashboard } from "@agrochain/database";
 
 export async function metricasRoutes(app: FastifyInstance) {
 
   // GET /api/metricas/dashboard
   app.get("/dashboard", { preHandler: [(app as any).authenticate] }, async () => {
-
-    const [
-      totalLotes,
-      lotesRegistrado,
-      lotesEnProduccion,
-      lotesCertificado,
-      lotesEnInspeccion,
-      totalCampanas,
-      campanasAbiertas,
-      campanasCerradas,
-      adulteradosSinResolver,
-      ultimasCampanas,
-      ultimosEventos,
-      totalPlantas,
-      registrosCompletos,
-    ] = await Promise.all([
-      db.lote.count(),
-      db.lote.count({ where: { estado: "REGISTRADO" } }),
-      db.lote.count({ where: { estado: "EN_PRODUCCION" } }),
-      db.lote.count({ where: { estado: "CERTIFICADO" } }),
-      db.lote.count({ where: { estado: { in: ["INSPECCION_SOLICITADA", "EN_INSPECCION"] } } }),
-      db.campana.count(),
-      db.campana.count({ where: { estado: "ABIERTA" } }),
-      db.campana.count({ where: { estado: "CERRADA" } }),
-      db.registroPlanta.count({ where: { estado: "ADULTERADO" } }),
-
-      db.campana.findMany({
-        take: 5,
-        orderBy: { createdAt: "desc" },
-        include: {
-          lote:    { select: { codigoLote: true, especie: true } },
-          creador: { select: { nombres: true, apellidos: true } },
-          _count:  { select: { registros: true } },
-        },
-      }),
-
-      db.eventoProduccion.findMany({
-        take: 5,
-        orderBy: { createdAt: "desc" },
-        include: {
-          lote:    { select: { codigoLote: true, especie: true } },
-          creador: { select: { nombres: true, apellidos: true } },
-        },
-      }),
-
-      db.planta.count(),
-      db.registroPlanta.count({ where: { estado: "COMPLETO" } }),
-    ]);
+    const m = await getMetricasDashboard();
 
     return {
       resumen: {
-        totalLotes,
-        lotesActivos:          lotesRegistrado + lotesEnProduccion,
-        lotesCertificados:     lotesCertificado,
-        lotesEnInspeccion,
-        totalCampanas,
-        campanasAbiertas,
-        campanasCerradas,
-        adulteradosSinResolver,
-        totalPlantas,
-        registrosCompletos,
+        totalLotes: m.totalLotes,
+        lotesActivos:          m.lotesRegistrado + m.lotesEnProduccion,
+        lotesCertificados:     m.lotesCertificado,
+        lotesEnInspeccion:     m.lotesEnInspeccion,
+        totalCampanas:         m.totalCampanas,
+        campanasAbiertas:      m.campanasAbiertas,
+        campanasCerradas:      m.campanasCerradas,
+        adulteradosSinResolver: m.adulteradosSinResolver,
+        totalPlantas:          m.totalPlantas,
+        registrosCompletos:    m.registrosCompletos,
       },
       lotesPorEstado: {
-        REGISTRADO:           lotesRegistrado,
-        EN_PRODUCCION:        lotesEnProduccion,
-        CERTIFICADO:          lotesCertificado,
-        EN_INSPECCION:        lotesEnInspeccion,
+        REGISTRADO:           m.lotesRegistrado,
+        EN_PRODUCCION:        m.lotesEnProduccion,
+        CERTIFICADO:          m.lotesCertificado,
+        EN_INSPECCION:        m.lotesEnInspeccion,
       },
-      ultimasCampanas: ultimasCampanas.map((c) => ({
+      ultimasCampanas: (m.ultimasCampanas as any[]).map((c) => ({
         id:             c.id,
         nombre:         c.nombre,
         estado:         c.estado,
-        lote:           c.lote,
-        creador:        c.creador,
-        totalRegistros: c._count.registros,
+        lote:           { codigoLote: c.loteCodigoLote, especie: c.loteEspecie },
+        creador:        { nombres: c.creadorNombres, apellidos: c.creadorApellidos },
+        totalRegistros: c.totalRegistros,
         createdAt:      c.createdAt,
       })),
-      ultimosEventos: ultimosEventos.map((e) => ({
+      ultimosEventos: (m.ultimosEventos as any[]).map((e) => ({
         id:             e.id,
         tipoEvento:     e.tipoEvento,
         fechaEvento:    e.fechaEvento,
-        lote:           e.lote,
-        tecnico:        e.creador,
+        lote:           { codigoLote: e.loteCodigoLote, especie: e.loteEspecie },
+        tecnico:        { nombres: e.tecnicoNombres, apellidos: e.tecnicoApellidos },
         hashVerificado: e.hashVerificado,
       })),
     };

@@ -23,7 +23,7 @@ interface CampanaResumen {
   lote: { codigoLote: string; especie: string; variedad: string | null };
   creador: { nombres: string; apellidos: string };
   cerrador: { nombres: string; apellidos: string } | null;
-  camposRequeridos: string;
+  camposRequeridos: string[];
   _count: { registros: number };
   tecnicos?: Array<{ posicion: number }>;
 }
@@ -101,9 +101,7 @@ export default async function CampanasPage() {
       ) : (
         <div className="space-y-3">
           {campanas.map((campana) => {
-            const campos: string[] = (() => {
-              try { return JSON.parse(campana.camposRequeridos); } catch { return []; }
-            })();
+            const campos: string[] = campana.camposRequeridos ?? [];
             return (
               <div key={campana.id}
                 className="bg-white border border-gray-200 rounded-xl p-5 hover:border-verde-300 hover:shadow-sm transition-all">

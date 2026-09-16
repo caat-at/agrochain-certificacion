@@ -18,7 +18,7 @@ interface AporteTecnico {
   id: string;
   tecnicoId: string;
   posicion: number;
-  campos: string;           // JSON
+  campos: Record<string, unknown>;
   fotoHash: string | null;
   audioHash: string | null;
   contentHash: string;
@@ -48,7 +48,7 @@ interface RegistroPlanta {
 
 interface CampanaTecnico {
   posicion: number;
-  camposAsignados: string;  // JSON
+  camposAsignados: string[];
   tecnico: { id: string; nombres: string; apellidos: string };
 }
 
@@ -133,8 +133,7 @@ function PanelTecnicos({
       <div className="space-y-2.5">
         {[1, 2, 3, 4].map((pos) => {
           const t = tecnicos.find((x) => x.posicion === pos);
-          let camposAsig: string[] = [];
-          try { camposAsig = JSON.parse(t?.camposAsignados ?? "[]"); } catch { /* ignore */ }
+          const camposAsig: string[] = t?.camposAsignados ?? [];
 
           return (
             <div

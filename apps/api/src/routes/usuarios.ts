@@ -1,6 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { db } from "@agrochain/database";
+import {
+  listUsuarios,
+  getUsuarioByEmail,
+  getUsuarioById,
+  createUsuario,
+  updateUsuario,
+} from "@agrochain/database";
 import { createHash } from "crypto";
 
 function sha256(text: string): string {
@@ -15,6 +21,19 @@ const CrearUsuarioSchema = z.object({
   rol:        z.enum(["ADMIN", "TECNICO", "AGRICULTOR", "INSPECTOR_ICA", "INSPECTOR_BPA", "CERTIFICADORA", "INVIMA"]),
 });
 
+function toPublico(usuario: Awaited<ReturnType<typeof getUsuarioById>>) {
+  if (!usuario) return null;
+  return {
+    id: usuario.id,
+    nombres: usuario.nombres,
+    apellidos: usuario.apellidos,
+    email: usuario.email,
+    rol: usuario.rol,
+    activo: usuario.activo,
+    createdAt: usuario.createdAt,
+  };
+}
+
 export async function usuariosRoutes(app: FastifyInstance) {
   // GET /api/usuarios — solo ADMIN
   app.get("/", { preHandler: [(app as any).authenticate] }, async (request, reply) => {
@@ -24,22 +43,9 @@ export async function usuariosRoutes(app: FastifyInstance) {
     }
 
     const { rol } = request.query as { rol?: string };
+    const usuarios = await listUsuarios({ rol });
 
-    const usuarios = await db.usuario.findMany({
-      where: rol ? { rol: rol as any } : undefined,
-      select: {
-        id: true,
-        nombres: true,
-        apellidos: true,
-        email: true,
-        rol: true,
-        activo: true,
-        createdAt: true,
-      },
-      orderBy: { createdAt: "asc" },
-    });
-
-    return { usuarios };
+    return { usuarios: usuarios.map(toPublico) };
   });
 
   // POST /api/usuarios — crear usuario (solo ADMIN)
@@ -56,32 +62,27 @@ export async function usuariosRoutes(app: FastifyInstance) {
 
     const { nombres, apellidos, email, password, rol } = parsed.data;
 
-    const existente = await db.usuario.findUnique({ where: { email } });
+    const existente = await getUsuarioByEmail(email);
     if (existente) {
       return reply.status(409).send({ message: "Ya existe un usuario con ese email" });
     }
 
-    const usuario = await db.usuario.create({
-      data: {
-        nombres,
-        apellidos,
-        email,
-        passwordHash: sha256(password),
-        rol: rol as any,
-        activo: true,
-      },
-      select: {
-        id: true,
-        nombres: true,
-        apellidos: true,
-        email: true,
-        rol: true,
-        activo: true,
-        createdAt: true,
-      },
+    // Documento provisional unico — el flujo actual no pide documento al crear
+    // usuario desde este endpoint (heredado del comportamiento Prisma previo,
+    // que dejaba numeroDocumento fuera del schema de creacion rapida de ADMIN).
+    const numeroDocumento = `TMP-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+    const usuario = await createUsuario({
+      nombres,
+      apellidos,
+      email,
+      passwordHash: sha256(password),
+      rol,
+      tipoDocumento: "CC",
+      numeroDocumento,
     });
 
-    return reply.status(201).send({ usuario });
+    return reply.status(201).send({ usuario: toPublico(usuario) });
   });
 
   // PATCH /api/usuarios/:id — editar usuario (solo ADMIN)
@@ -111,28 +112,25 @@ export async function usuariosRoutes(app: FastifyInstance) {
         return reply.status(400).send({ message: "Datos inválidos", errors: parsed.error.flatten().fieldErrors });
       }
 
-      const existente = await db.usuario.findUnique({ where: { id } });
+      const existente = await getUsuarioById(id);
       if (!existente) return reply.status(404).send({ message: "Usuario no encontrado" });
 
       if (parsed.data.email && parsed.data.email !== existente.email) {
-        const emailEnUso = await db.usuario.findUnique({ where: { email: parsed.data.email } });
+        const emailEnUso = await getUsuarioByEmail(parsed.data.email);
         if (emailEnUso) return reply.status(409).send({ message: "Ya existe un usuario con ese email" });
       }
 
       const { password, ...resto } = parsed.data;
-      const dataActualizar: any = { ...resto };
-      if (password) dataActualizar.passwordHash = sha256(password);
-
-      const actualizado = await db.usuario.update({
-        where: { id },
-        data:  dataActualizar,
-        select: {
-          id: true, nombres: true, apellidos: true,
-          email: true, rol: true, activo: true, createdAt: true,
-        },
+      const actualizado = await updateUsuario(id, {
+        ...resto,
+        ...(password ? { passwordHash: sha256(password) } : {}),
       });
 
-      return { usuario: actualizado };
+      if (actualizado === "no-changes" || !actualizado) {
+        return reply.status(404).send({ message: "Usuario no encontrado" });
+      }
+
+      return { usuario: toPublico(actualizado) };
     }
   );
 }

@@ -1,0 +1,71 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: agrochain_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-agrochain_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-agrochain_pass}
+      POSTGRES_DB: ${DB_NAME:-agrochain_db}
+    volumes:
+      - agrochain_pg_data:/var/lib/postgresql/data
+      # Los scripts se ejecutan en orden alfabetico solo la primera vez que se crea el volumen
+      - ./packages/database/sql:/docker-entrypoint-initdb.d
+    ports:
+      - '5434:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER:-agrochain_user} -d ${DB_NAME:-agrochain_db}']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: docker-api
+    container_name: agrochain_api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-agrochain_user}:${DB_PASSWORD:-agrochain_pass}@postgres:5432/${DB_NAME:-agrochain_db}
+      PORT: 3001
+      HOST: 0.0.0.0
+      NODE_ENV: production
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      POLYGON_RPC_URL: ${POLYGON_RPC_URL}
+      POLYGON_CHAIN_ID: ${POLYGON_CHAIN_ID}
+      BACKEND_WALLET_PRIVATE_KEY: ${BACKEND_WALLET_PRIVATE_KEY}
+      CONTRACT_LOTE_REGISTRY: ${CONTRACT_LOTE_REGISTRY}
+      CONTRACT_CERTIFICADO_NFT: ${CONTRACT_CERTIFICADO_NFT}
+      CONTRACT_ROLE_MANAGER: ${CONTRACT_ROLE_MANAGER}
+      S3_BUCKET: ${S3_BUCKET}
+      AWS_REGION: ${AWS_REGION:-us-east-2}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      COGNITO_USER_POOL_ID: ${COGNITO_USER_POOL_ID}
+      COGNITO_CLIENT_ID: ${COGNITO_CLIENT_ID}
+    ports:
+      - '3001:3001'
+
+  web:
+    build:
+      context: .
+      dockerfile: docker-web
+      args:
+        API_URL: http://api:3001
+    container_name: agrochain_web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      JWT_SECRET: ${JWT_SECRET}
+      API_URL: http://api:3001
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+    ports:
+      - '3300:3000'
+
+volumes:
+  agrochain_pg_data:

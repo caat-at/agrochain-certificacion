@@ -157,7 +157,7 @@ export default function DetallePlantaScreen() {
                 datosExtra:  JSON.stringify(extra),
                 latitud:     r.latitud,
                 longitud:    r.longitud,
-                altitudMsnm: null,
+                altitudMsnm: r.altitudMsnm,
                 tecnicoId:   "",
                 fotoHash:    null,
                 fotoUri:     null,

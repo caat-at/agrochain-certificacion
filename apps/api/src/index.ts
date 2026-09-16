@@ -16,7 +16,11 @@ import { inspeccionesRoutes } from "./routes/inspecciones.js";
 import { campanasRoutes } from "./routes/campanas.js";
 import { metricasRoutes }  from "./routes/metricas.js";
 import { informesRoutes }  from "./routes/informes.js";
+import { evidenciaRoutes } from "./routes/evidencia.js";
+import { eudrRoutes } from "./routes/eudr.js";
+import { stbnRoutes } from "./routes/stbn.js";
 import { verificarConexion } from "./services/blockchain.js";
+import { startAutoSealCampanaChecker } from "./services/autoSealCampanaChecker.js";
 
 const app = Fastify({
   logger: {
@@ -60,6 +64,9 @@ await app.register(inspeccionesRoutes,  { prefix: "/api/inspecciones" });
 await app.register(campanasRoutes,      { prefix: "/api/campanas" });
 await app.register(metricasRoutes,      { prefix: "/api/metricas" });
 await app.register(informesRoutes,      { prefix: "/api/informes" });
+await app.register(evidenciaRoutes,     { prefix: "/api/evidencia" });
+await app.register(eudrRoutes,          { prefix: "/api/eudr" });
+await app.register(stbnRoutes,          { prefix: "/api/stbn" });
 
 // ── HEALTH CHECK ──────────────────────────────────────────────────────────────
 app.get("/health", async () => ({
@@ -81,6 +88,7 @@ try {
   await app.listen({ port: PORT, host: HOST });
   console.log(`\n🚀 AgroChain API corriendo en http://localhost:${PORT}`);
   console.log(`   Health: http://localhost:${PORT}/health\n`);
+  startAutoSealCampanaChecker();
 } catch (err) {
   app.log.error(err);
   process.exit(1);

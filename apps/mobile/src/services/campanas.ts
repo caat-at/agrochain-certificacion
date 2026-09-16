@@ -8,6 +8,7 @@
  *  3. Al sincronizar, el servidor verifica el contentHash
  *  4. Cuando los 4 técnicos aportan → registro COMPLETO → posible cierre automático de campaña
  */
+import * as FileSystem from "expo-file-system";
 import {
   obtenerSesion,
   actualizarPosicionSesion,
@@ -23,6 +24,83 @@ import {
   CampanaLocal,
 } from "./db";
 import { generarContentHashAporte } from "../lib/hash";
+
+// ── Subida de evidencia binaria a S3 (via API) ───────────────────────────────
+// El binario (foto/audio) nunca salia del dispositivo — solo se sincronizaba
+// su hash. Ahora que el aporte fue confirmado por el servidor, se sube el
+// archivo real referenciando el aporte_tecnico.id recien creado. El servidor
+// recalcula el SHA256 del binario recibido y lo compara contra el hash ya
+// sincronizado (hashEsperado) antes de aceptarlo — ver apps/api/src/routes/evidencia.ts.
+async function subirEvidenciaAporte(params: {
+  apiUrl: string;
+  token: string;
+  aporteId: string;
+  uri: string;
+  hashEsperado: string;
+  mimetype: string;
+  filename: string;
+}): Promise<boolean> {
+  try {
+    const info = await FileSystem.getInfoAsync(params.uri);
+    if (!info.exists) return false;
+
+    const form = new FormData();
+    form.append("file", {
+      uri: params.uri,
+      name: params.filename,
+      type: params.mimetype,
+    } as unknown as Blob);
+    form.append("hashEsperado", params.hashEsperado);
+
+    const res = await fetch(`${params.apiUrl}/api/evidencia/aporte/${params.aporteId}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${params.token}`,
+        // No fijar Content-Type manualmente — fetch arma el boundary multipart correcto
+      },
+      body: form,
+    });
+
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Sube foto + audio (si el aporte los tiene) para un aporteId ya confirmado
+// por el servidor. Se llama tanto en el camino feliz (201) como al recibir
+// 409 (aporte duplicado — el dato ya existe, pero la evidencia pudo no
+// haberse subido en un intento anterior fallido).
+async function subirEvidenciaDelAporte(
+  sesion: { apiUrl: string; token: string },
+  aporte: AportePendiente,
+  aporteId: string
+): Promise<boolean> {
+  let ok = true;
+  if (aporte.fotoUri && aporte.fotoHash) {
+    ok = ok && (await subirEvidenciaAporte({
+      apiUrl: sesion.apiUrl,
+      token: sesion.token,
+      aporteId,
+      uri: aporte.fotoUri,
+      hashEsperado: aporte.fotoHash,
+      mimetype: "image/jpeg",
+      filename: `foto_${aporte.id}.jpg`,
+    }));
+  }
+  if (aporte.audioUri && aporte.audioHash) {
+    ok = ok && (await subirEvidenciaAporte({
+      apiUrl: sesion.apiUrl,
+      token: sesion.token,
+      aporteId,
+      uri: aporte.audioUri,
+      hashEsperado: aporte.audioHash,
+      mimetype: "audio/mp4",
+      filename: `audio_${aporte.id}.m4a`,
+    }));
+  }
+  return ok;
+}
 
 // ── Tipos de respuesta del servidor ──────────────────────────────────────────
 
@@ -257,22 +335,52 @@ export async function sincronizarAportes(): Promise<SyncAportesResultado> {
       );
 
       if (res.ok) {
-        await marcarAporteSincronizado(aporte.id);
-        resultado.enviados++;
+        const data = (await res.json().catch(() => null)) as { aporteId?: string } | null;
+
+        // Subir el binario real (foto/audio) ahora que el servidor confirmo
+        // el aporte (dato+hash ya persistidos) — antes de esto el archivo
+        // solo vivia localmente. El aporte NO se marca SINCRONIZADO hasta
+        // que la evidencia tambien suba: SINCRONIZADO es un estado terminal
+        // en este sistema (listarAportesPendientes ya no lo vuelve a mirar),
+        // asi que si se marcara antes y la subida fallara, esa evidencia se
+        // perderia para siempre. Queda en PENDIENTE y se reintenta en el
+        // proximo sync (el POST de aportes ya es idempotente via 409).
+        const evidenciaOk = data?.aporteId
+          ? await subirEvidenciaDelAporte(sesion, aporte, data.aporteId)
+          : true;
+
+        if (evidenciaOk) {
+          await marcarAporteSincronizado(aporte.id);
+          resultado.enviados++;
+        } else {
+          resultado.errores.push(`P${aporte.posicion}: dato guardado en servidor, evidencia pendiente de subir (se reintentará)`);
+        }
       } else {
         const rawText = await res.text().catch(() => "");
         console.log(`[sync] aporte P${aporte.posicion} → HTTP ${res.status} — ${rawText}`);
         let motivo = `HTTP ${res.status}`;
+        let parsedBody: { message?: string; error?: string; aporteId?: string } | null = null;
         try {
-          const parsed = JSON.parse(rawText) as { message?: string; error?: string };
-          motivo = parsed.message ?? parsed.error ?? rawText.substring(0, 120) ?? motivo;
+          parsedBody = JSON.parse(rawText) as { message?: string; error?: string; aporteId?: string };
+          motivo = parsedBody.message ?? parsedBody.error ?? rawText.substring(0, 120) ?? motivo;
         } catch {
           motivo = rawText.substring(0, 120) || motivo;
         }
         if (res.status === 409) {
-          // Ya existe en el servidor — marcar como sincronizado para no reintentar
-          await marcarAporteSincronizado(aporte.id);
-          resultado.enviados++;
+          // Ya existe en el servidor — el dato ya esta a salvo, pero la
+          // evidencia pudo no haberse subido en un intento anterior fallido.
+          // Se reintenta ahora que se conoce el aporteId (misma logica que
+          // el camino feliz, ver arriba).
+          const evidenciaOk = parsedBody?.aporteId
+            ? await subirEvidenciaDelAporte(sesion, aporte, parsedBody.aporteId)
+            : true;
+
+          if (evidenciaOk) {
+            await marcarAporteSincronizado(aporte.id);
+            resultado.enviados++;
+          } else {
+            resultado.errores.push(`P${aporte.posicion}: dato ya en servidor, evidencia pendiente de subir (se reintentará)`);
+          }
         } else if (res.status === 401) {
           // Token expirado — dejar pendiente, el usuario debe volver a iniciar sesión
           resultado.errores.push(`P${aporte.posicion}: Sesión expirada — cierra sesión y vuelve a entrar`);

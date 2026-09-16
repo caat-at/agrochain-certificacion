@@ -1,5 +1,5 @@
-# Single stage — monorepo pnpm v4 (slim/glibc — PostgreSQL nativo)
-ARG CACHEBUST=5
+# Single stage — monorepo pnpm (slim/glibc — PostgreSQL via pg, SQL directo)
+ARG CACHEBUST=6
 FROM node:22-slim
 WORKDIR /app
 
@@ -17,8 +17,9 @@ COPY packages/shared/      ./packages/shared/
 # Instalar dependencias
 RUN pnpm install --frozen-lockfile
 
-# Generar Prisma client y compilar paquetes workspace
-RUN pnpm --filter @agrochain/database db:generate
+# Compilar paquetes workspace (sin generar cliente Prisma — el schema SQL
+# de packages/database/sql/ se aplica directamente contra Postgres, ver
+# docker-compose.yml y db/README de despliegue)
 RUN pnpm --filter @agrochain/shared build
 RUN pnpm --filter @agrochain/database build
 

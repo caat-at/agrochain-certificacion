@@ -310,4 +310,45 @@ export async function finalizarInspeccionOnChain(
   };
 }
 
+/**
+ * Lee el evidenciaHash registrado en Polygon para una transacción específica.
+ * Parsea los logs de la tx buscando el evento EventoRegistrado y retorna
+ * el evidenciaHash (hex sin 0x) que fue sellado en blockchain.
+ * Retorna null si la tx no existe o no contiene el evento esperado.
+ */
+export async function leerHashDesdeTx(txHash: string): Promise<{
+  evidenciaHash: string;   // hex sin 0x, 64 chars
+  blockNumber:   number;
+  timestamp:     number;
+} | null> {
+  if (!isConfigured()) return null;
+
+  try {
+    const { loteRegistry } = getContracts();
+    const provider = loteRegistry.runner?.provider as ethers.JsonRpcProvider;
+
+    const receipt = await provider.getTransactionReceipt(txHash);
+    if (!receipt) return null;
+
+    const iface = new ethers.Interface(LOTE_REGISTRY_ABI);
+    for (const log of receipt.logs) {
+      try {
+        const parsed = iface.parseLog({ topics: [...log.topics], data: log.data });
+        if (parsed?.name === "EventoRegistrado") {
+          const evidenciaHex = parsed.args.evidenciaHash as string; // bytes32 "0x..."
+          const block = await provider.getBlock(receipt.blockNumber);
+          return {
+            evidenciaHash: evidenciaHex.startsWith("0x") ? evidenciaHex.slice(2) : evidenciaHex,
+            blockNumber:   receipt.blockNumber,
+            timestamp:     block?.timestamp ?? 0,
+          };
+        }
+      } catch { /* log de otro contrato */ }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export { idToBytes32, toBytes32, isConfigured };

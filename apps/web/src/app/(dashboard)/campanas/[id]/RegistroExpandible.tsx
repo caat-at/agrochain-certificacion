@@ -8,7 +8,7 @@ interface AporteTecnico {
   id: string;
   tecnicoId: string;
   posicion: number;
-  campos: string;           // JSON
+  campos: Record<string, unknown>;
   fotoHash: string | null;
   audioHash: string | null;
   contentHash: string;
@@ -38,7 +38,7 @@ interface RegistroPlanta {
 
 interface CampanaTecnico {
   posicion: number;
-  camposAsignados: string;
+  camposAsignados: string[];
   tecnico: { id: string; nombres: string; apellidos: string };
 }
 
@@ -94,8 +94,7 @@ function TablaConsolidada({
   }> = {};
 
   for (const aporte of aportes) {
-    let campos: Record<string, unknown> = {};
-    try { campos = JSON.parse(aporte.campos); } catch { /* ignore */ }
+    const campos: Record<string, unknown> = aporte.campos ?? {};
     for (const [k, v] of Object.entries(campos)) {
       if (v !== null && v !== undefined && v !== "") {
         mapaCampos[k] = {
@@ -199,8 +198,7 @@ function TablaAportes({ aportes }: { aportes: AporteTecnico[] }) {
   return (
     <div className="space-y-3">
       {aportes.map((aporte) => {
-        let campos: Record<string, unknown> = {};
-        try { campos = JSON.parse(aporte.campos); } catch { /* ignore */ }
+        const campos: Record<string, unknown> = aporte.campos ?? {};
 
         return (
           <div
@@ -329,12 +327,10 @@ export function RegistroExpandible({
   // Campos cubiertos (para mini barra)
   const camposCubiertos = new Set<string>();
   for (const aporte of registro.aportes) {
-    try {
-      const c = JSON.parse(aporte.campos) as Record<string, unknown>;
-      for (const [k, v] of Object.entries(c)) {
-        if (v !== null && v !== undefined && v !== "") camposCubiertos.add(k);
-      }
-    } catch { /* ignore */ }
+    const c: Record<string, unknown> = aporte.campos ?? {};
+    for (const [k, v] of Object.entries(c)) {
+      if (v !== null && v !== undefined && v !== "") camposCubiertos.add(k);
+    }
   }
   const faltantes    = camposRequeridos.filter((c) => !camposCubiertos.has(c));
   const pctCompleto  = camposRequeridos.length > 0
@@ -521,8 +517,7 @@ export function RegistroExpandible({
                 </p>
                 <div className="space-y-3">
                   {faltantes.map((t) => {
-                    let campos: string[] = [];
-                    try { campos = JSON.parse(t.camposAsignados); } catch { /* ignore */ }
+                    const campos: string[] = t.camposAsignados ?? [];
                     return (
                       <div key={t.posicion}>
                         <div className="flex items-center gap-2 mb-1">

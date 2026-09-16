@@ -116,6 +116,7 @@ export async function inicializarDB(): Promise<void> {
       fechaEvento     TEXT NOT NULL,
       latitud         REAL,
       longitud        REAL,
+      altitudMsnm     REAL,
       tecnicoId       TEXT NOT NULL,
       descripcion     TEXT NOT NULL DEFAULT '',
       datosExtra      TEXT NOT NULL DEFAULT '{}',
@@ -199,6 +200,7 @@ export async function inicializarDB(): Promise<void> {
     // eventos: columnas de audio si no existen
     "ALTER TABLE eventos ADD COLUMN audioHash TEXT",
     "ALTER TABLE eventos ADD COLUMN audioUri TEXT",
+    "ALTER TABLE eventos ADD COLUMN altitudMsnm REAL",
   ];
 
   for (const sql of migraciones) {
@@ -455,6 +457,7 @@ export interface EventoLocal {
   fechaEvento: string;
   latitud: number | null;
   longitud: number | null;
+  altitudMsnm: number | null;
   tecnicoId: string;
   descripcion: string;
   datosExtra: string; // JSON string
@@ -471,14 +474,14 @@ export async function guardarEvento(evento: EventoLocal): Promise<void> {
   const db = getDb();
   await db.runAsync(
     `INSERT OR REPLACE INTO eventos
-      (id, loteId, plantaId, tipoEvento, fechaEvento, latitud, longitud,
+      (id, loteId, plantaId, tipoEvento, fechaEvento, latitud, longitud, altitudMsnm,
        tecnicoId, descripcion, datosExtra, fotoHash, fotoUri, audioHash, audioUri,
        contentHash, syncEstado, creadoEn)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       evento.id, evento.loteId, evento.plantaId ?? null,
       evento.tipoEvento, evento.fechaEvento,
-      evento.latitud ?? null, evento.longitud ?? null,
+      evento.latitud ?? null, evento.longitud ?? null, evento.altitudMsnm ?? null,
       evento.tecnicoId, evento.descripcion, evento.datosExtra,
       evento.fotoHash ?? null, evento.fotoUri ?? null,
       evento.audioHash ?? null, evento.audioUri ?? null,

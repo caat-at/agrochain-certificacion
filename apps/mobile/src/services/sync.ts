@@ -161,8 +161,16 @@ export interface PlantaApi {
   numeroPlanta: string;
   especie: string | null;
   variedad: string | null;
+  origenMaterial: string | null;
+  procedenciaVivero: string | null;
+  fechaSiembra: string | null;
+  alturaCmInicial: number | null;
+  diametroTalloCmInicial: number | null;
+  numHojasInicial: number | null;
+  estadoFenologicoInicial: string | null;
   latitud: number;
   longitud: number;
+  altitudMsnm: number | null;
 }
 
 export async function cargarPlantasDesdeServidor(loteId: string): Promise<PlantaApi[]> {
@@ -300,6 +308,7 @@ export interface EventoApi {
   descripcion: string;
   latitud: number | null;
   longitud: number | null;
+  altitudMsnm: number | null;
   contentHash: string;
   syncEstado: string;
 }
@@ -325,6 +334,7 @@ export async function cargarEventosDesdeServidor(plantaId: string): Promise<Even
     descripcion: e.descripcion ?? "",
     latitud:     e.latitud ?? null,
     longitud:    e.longitud ?? null,
+    altitudMsnm: e.altitudMsnm ?? null,
     contentHash: e.contentHash,
     syncEstado:  "SINCRONIZADO",
   }));
@@ -335,9 +345,14 @@ export async function cargarEventosDesdeServidor(plantaId: string): Promise<Even
 export interface LoteApi {
   id: string;
   codigoLote: string;
+  predioId: string | null;
   predioNombre: string;
   especie: string;
   variedad: string | null;
+  areaHa: number | null;
+  fechaSiembra: string | null;
+  destinoProduccion: string | null;
+  sistemaRiego: string | null;
   estadoLote: string;
   dataHash: string | null;
 }

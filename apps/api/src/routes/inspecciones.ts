@@ -1,7 +1,17 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { ethers } from "ethers";
-import { db } from "@agrochain/database";
+import {
+  listInspecciones,
+  getInspeccionById,
+  getInspeccionDetalle,
+  createInspeccion,
+  updateInspeccionEstado,
+  completarInspeccion,
+  updateInspeccionTxHash,
+  getLoteById,
+  updateLoteEstado,
+} from "@agrochain/database";
 import { finalizarInspeccionOnChain, isConfigured } from "../services/blockchain";
 
 const RegistrarInspeccionSchema = z.object({
@@ -30,25 +40,9 @@ export async function inspeccionesRoutes(app: FastifyInstance) {
   app.get("/", { preHandler: [(app as any).authenticate] }, async (request) => {
     const payload = (request as any).user as { sub: string; rol: string };
 
-    const where: any = {};
-    if (payload.rol === "INSPECTOR_ICA" || payload.rol === "INSPECTOR_BPA") {
-      where.inspectorId = payload.sub;
-    }
-
-    const inspecciones = await db.inspeccion.findMany({
-      where,
-      include: {
-        lote: {
-          select: {
-            codigoLote: true,
-            especie:    true,
-            estado:     true,
-            predio:     { select: { nombrePredio: true } },
-          },
-        },
-        inspector: { select: { nombres: true, apellidos: true } },
-      },
-      orderBy: { createdAt: "desc" },
+    const inspecciones = await listInspecciones({
+      inspectorId:
+        payload.rol === "INSPECTOR_ICA" || payload.rol === "INSPECTOR_BPA" ? payload.sub : undefined,
     });
 
     return { inspecciones };
@@ -66,26 +60,19 @@ export async function inspeccionesRoutes(app: FastifyInstance) {
 
       const d = parsed.data;
 
-      const lote = await db.lote.findUnique({ where: { id: d.loteId } });
+      const lote = await getLoteById(d.loteId);
       if (!lote) return reply.status(404).send({ message: "Lote no encontrado" });
 
-      const inspeccion = await db.inspeccion.create({
-        data: {
-          loteId:          d.loteId,
-          inspectorId:     d.inspectorId,
-          organizacionId:  d.organizacionId,
-          tipoInspeccion:  d.tipoInspeccion,
-          fechaSolicitud:  new Date(d.fechaSolicitud),
-          fechaProgramada: d.fechaProgramada ? new Date(d.fechaProgramada) : undefined,
-          estado:          "PROGRAMADA",
-          resultado:       "PENDIENTE",
-        },
+      const inspeccion = await createInspeccion({
+        loteId:          d.loteId,
+        inspectorId:     d.inspectorId,
+        organizacionId:  d.organizacionId,
+        tipoInspeccion:  d.tipoInspeccion,
+        fechaSolicitud:  new Date(d.fechaSolicitud),
+        fechaProgramada: d.fechaProgramada ? new Date(d.fechaProgramada) : null,
       });
 
-      await db.lote.update({
-        where: { id: d.loteId },
-        data:  { estado: "INSPECCION_SOLICITADA" },
-      });
+      await updateLoteEstado(d.loteId, "INSPECCION_SOLICITADA");
 
       return reply.status(201).send({ success: true, data: inspeccion });
     }
@@ -98,21 +85,14 @@ export async function inspeccionesRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { id } = request.params;
 
-      const inspeccion = await db.inspeccion.findUnique({ where: { id } });
+      const inspeccion = await getInspeccionById(id);
       if (!inspeccion) return reply.status(404).send({ message: "Inspección no encontrada" });
       if (inspeccion.estado !== "PROGRAMADA") {
         return reply.status(400).send({ message: "La inspección ya fue iniciada o completada" });
       }
 
-      const actualizada = await db.inspeccion.update({
-        where: { id },
-        data:  { estado: "EN_CURSO" },
-      });
-
-      await db.lote.update({
-        where: { id: inspeccion.loteId },
-        data:  { estado: "EN_INSPECCION" },
-      });
+      const actualizada = await updateInspeccionEstado(id, "EN_CURSO");
+      await updateLoteEstado(inspeccion.loteId, "EN_INSPECCION");
 
       return { success: true, data: actualizada };
     }
@@ -134,7 +114,7 @@ export async function inspeccionesRoutes(app: FastifyInstance) {
       const { id } = request.params;
       const d = parsed.data;
 
-      const inspeccion = await db.inspeccion.findUnique({ where: { id } });
+      const inspeccion = await getInspeccionById(id);
       if (!inspeccion) return reply.status(404).send({ message: "Inspección no encontrada" });
 
       // Calcular reporteHash: keccak256 de los datos relevantes del resultado
@@ -150,21 +130,16 @@ export async function inspeccionesRoutes(app: FastifyInstance) {
       const reporteHash = ethers.keccak256(ethers.toUtf8Bytes(reportePayload));
       const reporteHashHex = reporteHash.slice(2); // sin 0x para registrarEventoOnChain
 
-      // Guardar resultado en DB
-      const actualizada = await db.inspeccion.update({
-        where: { id },
-        data: {
-          resultado:         d.resultado,
-          puntaje:           d.puntaje,
-          hallazgosCriticos: d.hallazgosCriticos,
-          hallazgosMayores:  d.hallazgosMayores,
-          hallazgosMenores:  d.hallazgosMenores,
-          observaciones:     d.observaciones,
-          planMejora:        d.planMejora,
-          fechaRealizada:    d.fechaRealizada ? new Date(d.fechaRealizada) : new Date(),
-          estado:            "COMPLETADA",
-          reporteHash,
-        },
+      const actualizada = await completarInspeccion(id, {
+        resultado:         d.resultado,
+        puntaje:           d.puntaje,
+        hallazgosCriticos: d.hallazgosCriticos,
+        hallazgosMayores:  d.hallazgosMayores,
+        hallazgosMenores:  d.hallazgosMenores,
+        observaciones:     d.observaciones,
+        planMejora:        d.planMejora,
+        fechaRealizada:    d.fechaRealizada ? new Date(d.fechaRealizada) : new Date(),
+        reporteHash,
       });
 
       // Actualizar estado del lote
@@ -173,10 +148,7 @@ export async function inspeccionesRoutes(app: FastifyInstance) {
           ? "COSECHADO"
           : "RECHAZADO";
 
-      await db.lote.update({
-        where: { id: inspeccion.loteId },
-        data:  { estado: nuevoEstadoLote },
-      });
+      await updateLoteEstado(inspeccion.loteId, nuevoEstadoLote);
 
       // Ejecutar flujo on-chain completo: solicitar→iniciar→finalizar inspección en Polygon
       let txHash: string | null = null;
@@ -191,10 +163,7 @@ export async function inspeccionesRoutes(app: FastifyInstance) {
           );
           txHash      = txResult.txHash;
           blockNumber = txResult.blockNumber;
-          await db.inspeccion.update({
-            where: { id },
-            data:  { txHash },
-          });
+          await updateInspeccionTxHash(id, txHash);
         } catch (e) {
           console.error("[blockchain] Error finalizando inspección on-chain:", e);
         }
@@ -215,7 +184,7 @@ export async function inspeccionesRoutes(app: FastifyInstance) {
     "/:id/anclar",
     { preHandler: [(app as any).authenticate] },
     async (request, reply) => {
-      const inspeccion = await db.inspeccion.findUnique({ where: { id: request.params.id } });
+      const inspeccion = await getInspeccionById(request.params.id);
       if (!inspeccion) return reply.status(404).send({ message: "Inspección no encontrada" });
       if (inspeccion.estado !== "COMPLETADA") {
         return reply.status(400).send({ message: "Solo se pueden anclar inspecciones completadas" });
@@ -238,10 +207,7 @@ export async function inspeccionesRoutes(app: FastifyInstance) {
 
         const txResult = await finalizarInspeccionOnChain(inspeccion.loteId, aprobado, reporteHashHex);
 
-        await db.inspeccion.update({
-          where: { id: request.params.id },
-          data:  { txHash: txResult.txHash },
-        });
+        await updateInspeccionTxHash(request.params.id, txResult.txHash);
 
         return { success: true, txHash: txResult.txHash, blockNumber: txResult.blockNumber };
       } catch (e) {
@@ -255,13 +221,7 @@ export async function inspeccionesRoutes(app: FastifyInstance) {
     "/:id",
     { preHandler: [(app as any).authenticate] },
     async (request, reply) => {
-      const inspeccion = await db.inspeccion.findUnique({
-        where:   { id: request.params.id },
-        include: {
-          lote:      { include: { predio: true, agricultor: true } },
-          inspector: true,
-        },
-      });
+      const inspeccion = await getInspeccionDetalle(request.params.id);
       if (!inspeccion) return reply.status(404).send({ message: "No encontrada" });
       return { success: true, data: inspeccion };
     }

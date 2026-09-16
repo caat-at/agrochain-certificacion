@@ -1,6 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { db, verificarHashEvento } from "@agrochain/database";
+import {
+  verificarHashEvento,
+  getEventoByContentHash,
+  getEventoDelDiaPorPlanta,
+  createEventoProduccion,
+} from "@agrochain/database";
 import type { SyncPayload, SyncResultado } from "@agrochain/shared";
 
 const SyncPayloadSchema = z.object({
@@ -80,10 +85,7 @@ export async function syncRoutes(app: FastifyInstance) {
       }
 
       // ── 2. VERIFICAR DUPLICADO (hash unico) ───────────────────────────────
-      const existente = await db.eventoProduccion.findUnique({
-        where: { contentHash: payload.contentHash },
-        select: { id: true },
-      });
+      const existente = await getEventoByContentHash(payload.contentHash);
 
       if (existente) {
         // Ya existe — sync duplicado (reconexion), aceptar silencioso
@@ -100,17 +102,7 @@ export async function syncRoutes(app: FastifyInstance) {
       // ── 3. VERIFICAR QUE LA PLANTA NO TIENE EVENTO DEL MISMO TIPO HOY ────
       if (payload.plantaId) {
         const fechaHoy = payload.fechaEvento.split("T")[0];
-        const eventoHoy = await db.eventoProduccion.findFirst({
-          where: {
-            plantaId: payload.plantaId,
-            tipoEvento: payload.tipoEvento as any,
-            fechaEvento: {
-              gte: new Date(`${fechaHoy}T00:00:00Z`),
-              lte: new Date(`${fechaHoy}T23:59:59Z`),
-            },
-          },
-          select: { id: true, fechaEvento: true },
-        });
+        const eventoHoy = await getEventoDelDiaPorPlanta(payload.plantaId, payload.tipoEvento, fechaHoy);
 
         if (eventoHoy) {
           resultados.push({
@@ -123,22 +115,20 @@ export async function syncRoutes(app: FastifyInstance) {
         }
       }
 
-      // ── 4. GUARDAR EN TURSO ───────────────────────────────────────────────
+      // ── 4. GUARDAR EN POSTGRES ─────────────────────────────────────────────
       try {
-        const nuevo = await db.eventoProduccion.create({
-          data: {
-            loteId: payload.loteId,
-            plantaId: payload.plantaId,
-            creadoPor: payload.tecnicoId,
-            tipoEvento: payload.tipoEvento as any,
-            descripcion: payload.descripcion,
-            fechaEvento: new Date(payload.fechaEvento),
-            latitud: payload.latitud,
-            longitud: payload.longitud,
-            contentHash: payload.contentHash,
-            hashVerificado: true,
-            syncEstado: "VERIFICADO",
-          },
+        const nuevo = await createEventoProduccion({
+          loteId: payload.loteId,
+          plantaId: payload.plantaId,
+          creadoPor: payload.tecnicoId,
+          tipoEvento: payload.tipoEvento,
+          descripcion: payload.descripcion,
+          fechaEvento: new Date(payload.fechaEvento),
+          latitud: payload.latitud,
+          longitud: payload.longitud,
+          contentHash: payload.contentHash,
+          hashVerificado: true,
+          syncEstado: "VERIFICADO",
         });
 
         resultados.push({

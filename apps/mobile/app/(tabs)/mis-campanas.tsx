@@ -66,11 +66,12 @@ export default function MisCampanasScreen() {
               campana: {
                 id:               local.id,
                 nombre:           local.nombre,
+                codigo:           null, // no se cachea localmente, solo disponible con conexión
                 descripcion:      local.descripcion ?? null,
                 loteId:           local.loteId,
                 lote:             { codigoLote: lote.codigoLote, especie: lote.especie, variedad: lote.variedad ?? null },
                 camposRequeridos: JSON.parse(local.camposRequeridos),
-                creador:          { nombres: local.creadorNombre, apellidos: "" },
+                creador:          { nombres: local.creadorNombre ?? "", apellidos: "" },
                 fechaApertura:    local.fechaApertura,
                 estado:           "ABIERTA",
               },

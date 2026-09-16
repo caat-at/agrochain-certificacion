@@ -1,8 +1,9 @@
 # INFORME TÉCNICO
 ## AgroChain — Sistema de Certificación de Cultivos con Trazabilidad Blockchain
 
-**Versión**: 1.0
-**Fecha**: 17 de marzo de 2026
+**Versión**: 1.1
+**Fecha**: 19 de mayo de 2026
+**Versión anterior**: 1.0 — 17 de marzo de 2026
 **Clasificación**: Confidencial
 
 ---
@@ -18,8 +19,15 @@
    - 2.5. [API Backend y Endpoints](#25-api-backend-y-endpoints)
    - 2.6. [Interfaz de Usuario (Dashboard)](#26-interfaz-de-usuario-dashboard)
    - 2.7. [Conclusión](#27-conclusión)
-3. [Anexos](#3-anexos)
-4. [Firmas](#4-firmas)
+3. [Fase de Despliegue en AWS (marzo–mayo 2026)](#3-fase-de-despliegue-en-aws-marzoMayo-2026)
+   - 3.1. [Migración de base de datos a RDS PostgreSQL](#31-migración-de-base-de-datos-a-rds-postgresql)
+   - 3.2. [Despliegue de API en EC2](#32-despliegue-de-api-en-ec2)
+   - 3.3. [Despliegue del Dashboard en Amplify](#33-despliegue-del-dashboard-en-amplify)
+   - 3.4. [Verificación on-chain completa](#34-verificación-on-chain-completa)
+   - 3.5. [Migración de datos de producción](#35-migración-de-datos-de-producción)
+   - 3.6. [Infraestructura AWS final](#36-infraestructura-aws-final)
+4. [Anexos](#4-anexos)
+5. [Firmas](#5-firmas)
 
 ---
 
@@ -593,7 +601,217 @@ El sistema cumple con los requisitos documentales de las normas ICA Res. 3168/20
 
 ---
 
-## 3. Anexos
+---
+
+## 3. Fase de Despliegue en AWS (marzo–mayo 2026)
+
+Esta fase documenta el proceso de migración del sistema desde el entorno de desarrollo local hacia infraestructura productiva en Amazon Web Services, realizado entre marzo y mayo de 2026.
+
+---
+
+### 3.1. Migración de base de datos a RDS PostgreSQL
+
+**Motor origen:** SQLite / Turso (libSQL cloud)
+**Motor destino:** PostgreSQL 15 — AWS RDS `db.t3.micro` (región us-east-2)
+**Endpoint:** `agrochain-db.cny6e80wut7v.us-east-2.rds.amazonaws.com:5432`
+
+**Cambios técnicos realizados:**
+
+- Actualización del driver Prisma de `@libsql/client` a driver PostgreSQL nativo
+- Actualización de `DATABASE_URL` en todos los servicios al formato `postgresql://`
+- Corrección de enums PostgreSQL: `EstadoSync`, `EstadoRegistroPlanta` y demás enums pasaron de texto plano (SQLite) a tipos `USER-DEFINED` en PostgreSQL
+- Ejecución de `prisma db push` contra RDS para aplicar el schema completo (22 modelos, 19 enums)
+- Carga de datos de referencia colombiana: 33 departamentos, ~1.100 municipios (códigos DANE), 100+ numerales NTC 5400
+
+**Bug crítico detectado y corregido:**
+
+Durante la migración se identificó que Turso almacenaba el campo `fechaAporte` como entero de milisegundos (ej: `1773945931126`), mientras que PostgreSQL lo leía de vuelta como timestamp ISO 8601. Esta diferencia de formato causaba que el `contentHash` recalculado no coincidiera con el almacenado, generando **falsos positivos de adulteración** en todos los registros migrados. La solución fue migrar los datos originales convirtiendo explícitamente los timestamps a objetos `Date` antes de la inserción.
+
+---
+
+### 3.2. Despliegue de API en EC2
+
+**Instancia:** AWS EC2 `t3.micro` — IP pública `18.224.27.60`
+**Puerto:** 3001
+**Método de despliegue:** Docker container
+
+**Proceso:**
+
+1. Construcción de imagen Docker (`docker-api` — Dockerfile multistage)
+2. Publicación en ECR: `233376973500.dkr.ecr.us-east-2.amazonaws.com/agrochain-api:latest`
+3. Pull y ejecución en EC2 con variables de entorno de producción:
+
+```bash
+docker run -d --name agrochain-api \
+  -p 3001:3001 \
+  -e DATABASE_URL="postgresql://..." \
+  -e JWT_SECRET="..." \
+  -e BACKEND_WALLET_PRIVATE_KEY="0x..." \
+  -e CONTRACT_LOTE_REGISTRY="0x6f4C1D2c02f39bB8B50E848CdA743F8300bcc5dc" \
+  -e CONTRACT_CERTIFICADO_NFT="0x338b8413CaB60D31E4CE7f272f7eFfE73280A538" \
+  233376973500.dkr.ecr.us-east-2.amazonaws.com/agrochain-api:latest
+```
+
+**Variables de entorno de producción:**
+
+| Variable | Valor |
+|---------|-------|
+| `DATABASE_URL` | RDS PostgreSQL (sslmode=require) |
+| `JWT_SECRET` | `dev-secret-cambiar-en-produccion` |
+| `BACKEND_WALLET_PRIVATE_KEY` | Wallet backend para firmar transacciones Polygon |
+| `CONTRACT_LOTE_REGISTRY` | `0x6f4C1D2c02f39bB8B50E848CdA743F8300bcc5dc` |
+| `CONTRACT_CERTIFICADO_NFT` | `0x338b8413CaB60D31E4CE7f272f7eFfE73280A538` |
+
+---
+
+### 3.3. Despliegue del Dashboard en Amplify
+
+**Servicio:** AWS Amplify Hosting
+**URL de producción:** `https://main.d1q6mm86w7729d.amplifyapp.com`
+**App ID:** `d1q6mm86w7729d` — Región: `us-east-2`
+**Repositorio:** GitHub (rama `main`)
+
+**Configuración del build (monorepo Turborepo):**
+
+```yaml
+# amplify.yml
+version: 1
+applications:
+  - frontend:
+      buildSpec: |
+        version: 1
+        frontend:
+          phases:
+            build:
+              commands:
+                - cd ../.. && pnpm install --frozen-lockfile
+                - pnpm --filter @agrochain/shared build
+                - pnpm --filter @agrochain/web build
+          artifacts:
+            baseDirectory: .next
+            files:
+              - '**/*'
+      appRoot: apps/web
+```
+
+**Variables de entorno en Amplify:**
+
+| Variable | Valor |
+|---------|-------|
+| `API_URL` | `http://18.224.27.60:3001` |
+| `NEXT_PUBLIC_API_URL` | `http://18.224.27.60:3001` |
+| `JWT_SECRET` | Mismo valor que API (verificación de tokens) |
+
+**Integración continua:** cada push a la rama `main` dispara automáticamente un nuevo build y despliegue en Amplify.
+
+---
+
+### 3.4. Verificación on-chain completa
+
+Se extendió el módulo de verificación para incluir consulta directa a Polygon en el historial del dashboard.
+
+**Cambios en el schema Prisma — modelo `VerificacionHashCampana`:**
+
+Se agregaron 7 nuevos campos opcionales para almacenar el resultado de la consulta a Polygon en cada verificación:
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `txHash` | `String?` | Hash de la transacción en Polygon |
+| `hashEnPolygon` | `String?` | Hash leído del evento `EventoRegistrado` |
+| `blockNumber` | `Int?` | Número de bloque de la transacción |
+| `timestampPolygon` | `Int?` | Timestamp del bloque (Unix) |
+| `okDB` | `Boolean?` | ¿Hash recalculado coincide con DB? |
+| `okPolygon` | `Boolean?` | ¿Hash recalculado coincide con Polygon? |
+| `polygonError` | `String?` | Error al consultar Polygon (si aplica) |
+
+**Flujo del endpoint `POST /api/campanas/:id/verificar-hash-campana`:**
+
+```
+1. Recalcula campanaHash desde los registros COMPLETO actuales en RDS
+2. Compara contra campanaHash guardado en DB al cierre → okDB
+3. Lee el evento EventoRegistrado de la txHash via leerHashDesdeTx()
+4. Compara hash recalculado contra evidenciaHash en Polygon → okPolygon
+5. Guarda todo en VerificacionHashCampana
+6. Retorna: { okDB, okPolygon, hashRecalculado, hashEnPolygon, blockNumber, txHash }
+```
+
+**Resultado en el dashboard:** el historial de verificaciones de hash muestra tres valores con badges de estado:
+- `Hash recalculado` (desde datos actuales en RDS)
+- `Hash sellado al cierre` (DB) con badge `DB ✓` o `DB ✗`
+- `Hash registrado en Polygon` con badge `Polygon ✓` o `Polygon ✗` y link a PolygonScan
+
+---
+
+### 3.5. Migración de datos de producción
+
+Se migraron los datos reales generados durante las pruebas de campo en Turso hacia RDS PostgreSQL, preservando la integridad total de la cadena de hashes.
+
+**Datos migrados:**
+
+| Entidad | Cantidad | Detalle |
+|---------|---------|---------|
+| Registros de planta | 5 | Estado COMPLETO, plantas l1_001 a l1_005 |
+| Aportes técnicos | 20 | 4 técnicos × 5 plantas, con GPS, campos, fotoHash, audioHash |
+| Campaña | 1 | `campana_001` — estado CERRADA |
+
+**Hashes preservados (campaña `campana_001`):**
+
+| Campo | Valor |
+|-------|-------|
+| `campanaHash` | `f3dec08dc006c87d6404deeac6c79eb047b6438265b0efdff522196387224faa` |
+| `txHash` | `0x5b1fee3538f077a031718a4fb56862c1fa270c5e71ca12069c7a048103a52c1c` |
+
+**Resultado de verificación post-migración:**
+- ✅ Verificar integridad: 5/5 registros válidos — sin adulteraciones
+- ✅ Verificar hash campaña: DB ✓ · Polygon ✓
+
+---
+
+### 3.6. Infraestructura AWS final
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        AWS (us-east-2)                      │
+│                                                             │
+│  ┌──────────────────┐      ┌──────────────────────────┐    │
+│  │  Amplify Hosting  │      │       EC2 t3.micro        │    │
+│  │  Next.js 14       │─────▶│  Docker: agrochain-api   │    │
+│  │  (Dashboard Web)  │      │  Puerto 3001              │    │
+│  └──────────────────┘      └────────────┬─────────────┘    │
+│                                          │                   │
+│                             ┌────────────▼─────────────┐    │
+│                             │    RDS PostgreSQL 15      │    │
+│                             │    db.t3.micro            │    │
+│                             │    (22 modelos, ~400 rows)│    │
+│                             └──────────────────────────┘    │
+│                                                             │
+│  ┌──────────────────┐                                       │
+│  │       ECR         │  (imagen Docker agrochain-api)       │
+│  └──────────────────┘                                       │
+└─────────────────────────────────────────────────────────────┘
+                          │
+                          │ Transacciones blockchain
+                          ▼
+              ┌───────────────────────┐
+              │   Polygon Amoy        │
+              │   chainId: 80002      │
+              │   LoteRegistry.sol    │
+              │   CertificadoNFT.sol  │
+              └───────────────────────┘
+```
+
+| Servicio | Tipo | Endpoint / URL |
+|---------|------|----------------|
+| RDS PostgreSQL | `db.t3.micro` | `agrochain-db.cny6e80wut7v.us-east-2.rds.amazonaws.com` |
+| EC2 API | `t3.micro` | `http://18.224.27.60:3001` |
+| Amplify Web | Hosting | `https://main.d1q6mm86w7729d.amplifyapp.com` |
+| ECR | Registry | `233376973500.dkr.ecr.us-east-2.amazonaws.com/agrochain-api` |
+| LoteRegistry | Polygon Amoy | `0x6f4C1D2c02f39bB8B50E848CdA743F8300bcc5dc` |
+| CertificadoNFT | Polygon Amoy | `0x338b8413CaB60D31E4CE7f272f7eFfE73280A538` |
+
+---
+
+## 4. Anexos
 
 ### Anexo A — Algoritmo de integridad SHA256
 
@@ -698,7 +916,7 @@ CERTIFICADO_NFT_ADDRESS="0x..."
 
 ---
 
-## 4. Firmas
+## 5. Firmas
 
 El presente informe técnico ha sido elaborado como documentación del sistema AgroChain v1.0.
 
@@ -714,6 +932,6 @@ El presente informe técnico ha sido elaborado como documentación del sistema A
 
 ---
 
-*Documento generado el 17 de marzo de 2026.*
+*Documento actualizado el 19 de mayo de 2026. Versión anterior: 1.0 — 17 de marzo de 2026.*
 *AgroChain — Sistema de Certificación Agrícola con Trazabilidad Blockchain*
-*Versión del sistema: 1.0.0 — Polygon Amoy (chainId 80002)*
+*Versión del sistema: 1.1.0 — Polygon Amoy (chainId 80002) — Desplegado en AWS*

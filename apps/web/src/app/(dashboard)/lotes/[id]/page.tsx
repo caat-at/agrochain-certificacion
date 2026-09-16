@@ -16,7 +16,7 @@ interface CampanaLote {
   fechaApertura: string;
   fechaCierre: string | null;
   campanaHash: string | null;
-  camposRequeridos: string;
+  camposRequeridos: string[];
   _count: { registros: number };
   creador: { nombres: string; apellidos: string };
 }
@@ -224,9 +224,7 @@ export default async function LoteDetallePage({
             ) : (
               <div className="space-y-2">
                 {campanas.map((c) => {
-                  const campos: string[] = (() => {
-                    try { return JSON.parse(c.camposRequeridos); } catch { return []; }
-                  })();
+                  const campos: string[] = c.camposRequeridos ?? [];
                   return (
                     <Link key={c.id} href={`/campanas/${c.id}`}>
                       <div className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-100 transition-colors">

@@ -50,15 +50,20 @@ export default function MisLotesScreen() {
       const remotos = await cargarLotesDesdeServidor();
       for (const r of remotos) {
         await upsertLote({
-          id:           r.id,
-          codigoLote:   r.codigoLote,
-          predioNombre: r.predioNombre,
-          especie:      r.especie,
-          variedad:     r.variedad,
-          estadoLote:   r.estadoLote,
-          dataHash:     r.dataHash,
-          syncEstado:   "SINCRONIZADO",
-          creadoEn:     new Date().toISOString(),
+          id:                r.id,
+          predioId:          r.predioId,
+          codigoLote:        r.codigoLote,
+          predioNombre:      r.predioNombre,
+          especie:           r.especie,
+          variedad:          r.variedad,
+          areaHa:            r.areaHa,
+          fechaSiembra:      r.fechaSiembra,
+          destinoProduccion: r.destinoProduccion,
+          sistemaRiego:      r.sistemaRiego,
+          estadoLote:        r.estadoLote,
+          dataHash:          r.dataHash,
+          syncEstado:        "SINCRONIZADO",
+          creadoEn:          new Date().toISOString(),
         });
       }
       await cargarLocal();

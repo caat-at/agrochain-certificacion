@@ -1,7 +1,13 @@
-// Cliente de base de datos
-export { db } from "./lib/client.js";
+// Pool de conexion PostgreSQL (reemplaza al cliente Prisma)
+export { default as pool } from "./db/client.js";
 
-// Utilidades de hashing e integridad
+// Funciones de acceso a datos SQL directo
+export * from "./db/queries.js";
+export * from "./db/queries-campanas.js";
+export * from "./db/queries-eudr.js";
+export * from "./db/queries-stbn.js";
+
+// Utilidades de hashing e integridad — sin cambios, modulo puro
 export {
   generarHashEvento,
   verificarHashEvento,
@@ -14,28 +20,40 @@ export {
   generarContentHashAporte,
   generarHashCampana,
   verificarCamposCompletos,
+  generarContentHashDeclaracionEudr,
+  generarContentHashEvaluacionStbn,
   type EventoCampoData,
 } from "./lib/hash.js";
 
-// Re-exportar tipos de Prisma para uso en otras apps
+// Tipos de dominio (reemplazan los tipos generados por Prisma)
 export type {
   Usuario,
   Organizacion,
   Predio,
-  AnalisisSuelo,
-  Planta,
   Lote,
+  Planta,
   EventoProduccion,
-  AplicacionAgroquimico,
-  RegistroRiego,
   Inspeccion,
-  ChecklistBpa,
-  NumeralNtc5400,
   Certificado,
   Documento,
   BlockchainTx,
-  Departamento,
-  Municipio,
+  Campana,
+  CampanaTecnico,
+  RegistroPlanta,
+  AporteTecnico,
+  VerificacionIntegridad,
+  VerificacionRegistroDetalle,
+  VerificacionHashCampana,
+  LotePoligono,
+  EudrDeclaracion,
+  EudrEvidenciaSatelital,
+  EvidenciaBinaria,
+  StbnSubcriterio,
+  StbnEvidenciaPilar,
+  StbnEvaluacion,
+  StbnEvaluacionSubcriterio,
+  PuntajeStbnLote,
+  PilarStbnResumen,
   RolUsuario,
   TipoDocumento,
   EstadoLote,
@@ -44,10 +62,10 @@ export type {
   CategoriaToxicologica,
   TipoCertificado,
   EstadoTx,
-  Campana,
-  CampanaTecnico,
-  RegistroPlanta,
-  AporteTecnico,
   EstadoCampana,
   EstadoRegistroPlanta,
-} from "@prisma/client";
+  EstadoDeclaracionEudr,
+  PilarStbn,
+  NivelCalificacionStbn,
+  EstadoEvaluacionStbn,
+} from "./types.js";
