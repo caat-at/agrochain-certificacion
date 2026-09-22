@@ -14,6 +14,7 @@ interface LotePredio {
   areaHa: number;
   estado: string;
   totalPlantas: number;
+  loteIdOnchain: string | null;
 }
 
 interface PredioDetalle {
@@ -116,7 +117,14 @@ export default async function PredioDetallePage({ params }: { params: { id: stri
                           {l.especie}{l.variedad ? ` · ${l.variedad}` : ""} · {l.areaHa} ha
                         </p>
                       </div>
-                      <span className="badge bg-gray-100 text-gray-600 text-xs">{l.estado}</span>
+                      <div className="flex items-center gap-1.5">
+                        {!l.loteIdOnchain && (
+                          <span className="badge bg-amber-50 text-amber-600 text-[10px]" title="No registrado en blockchain">
+                            Sin blockchain
+                          </span>
+                        )}
+                        <span className="badge bg-gray-100 text-gray-600 text-xs">{l.estado}</span>
+                      </div>
                     </div>
                   </Link>
                 ))}
@@ -141,7 +149,7 @@ export default async function PredioDetallePage({ params }: { params: { id: stri
               evaluacionInicial={evaluacion}
               calificacionesIniciales={calificaciones}
               puntajeInicial={puntaje}
-              lotes={predio.lotes.map((l) => ({ id: l.id, codigoLote: l.codigoLote }))}
+              lotes={predio.lotes.map((l) => ({ id: l.id, codigoLote: l.codigoLote, registradoOnchain: !!l.loteIdOnchain }))}
               token={token}
             />
           </div>

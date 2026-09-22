@@ -251,6 +251,7 @@ export async function getPredioConLotes(
        id, codigo_lote AS "codigoLote", especie, variedad, area_ha AS "areaHa",
        fecha_siembra AS "fechaSiembra", destino_produccion AS "destinoProduccion",
        sistema_riego AS "sistemaRiego", estado, data_hash AS "dataHash",
+       lote_id_onchain AS "loteIdOnchain",
        created_at AS "createdAt",
        (SELECT count(*)::int FROM plantas pl WHERE pl.lote_id = lotes.id) AS "totalPlantas"
      FROM lotes

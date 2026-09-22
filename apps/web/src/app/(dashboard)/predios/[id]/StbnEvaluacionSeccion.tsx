@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { getApiUrl } from "@/lib/client";
 import type { StbnSubcriterio, PilarStbn } from "./StbnEvidenciaSeccion";
 
@@ -82,7 +83,7 @@ export function StbnEvaluacionSeccion({
   evaluacionInicial: StbnEvaluacion | null;
   calificacionesIniciales: StbnCalificacion[];
   puntajeInicial: PuntajeStbnLote | null;
-  lotes: Array<{ id: string; codigoLote: string }>;
+  lotes: Array<{ id: string; codigoLote: string; registradoOnchain: boolean }>;
   token: string;
 }) {
   const router = useRouter();
@@ -91,7 +92,12 @@ export function StbnEvaluacionSeccion({
   const [guardandoCodigo, setGuardandoCodigo] = useState<string | null>(null);
   const [anclando, setAnclando] = useState(false);
   const [ancladoEnCola, setAncladoEnCola] = useState(false);
-  const [loteSeleccionado, setLoteSeleccionado] = useState(lotes[0]?.id ?? "");
+  // Preseleccionar un lote ya registrado on-chain si existe alguno — el
+  // contrato exige loteExiste() para anclar, asi que preferimos no arrancar
+  // en un lote que sabemos que va a fallar.
+  const loteRegistradoDefault = lotes.find((l) => l.registradoOnchain)?.id ?? lotes[0]?.id ?? "";
+  const [loteSeleccionado, setLoteSeleccionado] = useState(loteRegistradoDefault);
+  const loteActual = lotes.find((l) => l.id === loteSeleccionado);
 
   const calMap = new Map(calificacionesIniciales.map((c) => [c.subcriterioCodigo, c]));
   const totalCalificados = calificacionesIniciales.length;
@@ -284,12 +290,32 @@ export function StbnEvaluacionSeccion({
             <p className="text-xs text-gray-400">Se necesita al menos un lote registrado en el predio para anclar.</p>
           ) : (
             <div className="space-y-2">
-              <select className="input text-xs" value={loteSeleccionado} onChange={(e) => setLoteSeleccionado(e.target.value)}>
-                {lotes.map((l) => (
-                  <option key={l.id} value={l.id}>{l.codigoLote}</option>
-                ))}
-              </select>
-              <button onClick={handleAnclar} disabled={anclando} className="btn-primary text-sm py-2 w-full disabled:opacity-50">
+              <div>
+                <label className="label text-xs">Lote de referencia</label>
+                <select className="input text-xs" value={loteSeleccionado} onChange={(e) => setLoteSeleccionado(e.target.value)}>
+                  {lotes.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.codigoLote}{l.registradoOnchain ? "" : " (sin blockchain)"}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-400 mt-1">
+                  El anclaje se registra contra este lote (el contrato exige un lote ya en blockchain).
+                </p>
+              </div>
+              {loteActual && !loteActual.registradoOnchain && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
+                  {loteActual.codigoLote} no está registrado en blockchain todavía — el anclaje va a fallar.{" "}
+                  <Link href={`/lotes/${loteActual.id}`} className="underline font-medium">
+                    Registrarlo primero →
+                  </Link>
+                </div>
+              )}
+              <button
+                onClick={handleAnclar}
+                disabled={anclando || !loteActual?.registradoOnchain}
+                className="btn-primary text-sm py-2 w-full disabled:opacity-50"
+              >
                 {anclando ? "Enviando a Polygon…" : "Anclar en blockchain"}
               </button>
             </div>
