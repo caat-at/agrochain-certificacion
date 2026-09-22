@@ -16,8 +16,14 @@ RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @agrochain/shared build
 
 # Build Next.js
-ARG API_URL=https://agrochainapi-production.up.railway.app
+# API_URL (sin NEXT_PUBLIC_) es solo para Server Components / route handlers,
+# se lee en runtime. NEXT_PUBLIC_API_URL es la que usa el codigo que corre en
+# el navegador (lib/client.ts) — Next.js la hornea en el bundle en build-time,
+# por eso debe pasarse aqui y no solo en el environment del contenedor.
+ARG API_URL=http://localhost:3001
+ARG NEXT_PUBLIC_API_URL=http://localhost:3001
 ENV API_URL=${API_URL}
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN pnpm --filter @agrochain/web build

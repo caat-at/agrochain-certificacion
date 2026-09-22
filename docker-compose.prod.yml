@@ -30,7 +30,8 @@ services:
       context: .
       dockerfile: docker-web
       args:
-        API_URL: ${NEXT_PUBLIC_API_URL}
+        API_URL: http://api:3001
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
     container_name: agrochain_web
     restart: unless-stopped
     depends_on:
