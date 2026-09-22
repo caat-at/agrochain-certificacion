@@ -169,6 +169,22 @@ export async function stbnRoutes(app: FastifyInstance) {
     }
   );
 
+  // ── GET /api/stbn/predios/:predioId/evaluacion ───────────────────────────
+  // Evaluacion vigente del predio (si existe) + sus calificaciones — usado
+  // para pintar el estado al cargar la pagina, sin depender de crear una
+  // evaluacion nueva solo para consultar.
+  app.get<{ Params: { predioId: string } }>(
+    "/predios/:predioId/evaluacion",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
+      const evaluacion = await getEvaluacionVigentePorPredio(request.params.predioId);
+      if (!evaluacion) return { evaluacion: null, calificaciones: [] };
+
+      const calificaciones = await listCalificacionesPorEvaluacion(evaluacion.id);
+      return { evaluacion, calificaciones };
+    }
+  );
+
   // ── POST /api/stbn/predios/:predioId/evaluaciones ───────────────────────
   app.post<{ Params: { predioId: string } }>(
     "/predios/:predioId/evaluaciones",

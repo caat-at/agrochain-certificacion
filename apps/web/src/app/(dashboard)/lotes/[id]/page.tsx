@@ -8,6 +8,7 @@ import QRCodeImg from "@/components/QRCode";
 import RegistrarBlockchainBtn from "./RegistrarBlockchainBtn";
 import { DescargarPdfBtn } from "./DescargarPdfBtn";
 import { PlantasGrid, type PlantaLote } from "./PlantasGrid";
+import { EudrSeccion, type EudrEstadoLote } from "./EudrSeccion";
 
 interface CampanaLote {
   id: string;
@@ -35,6 +36,7 @@ interface LoteDetalle {
   fechaCosechaEst: string | null;
   createdAt: string;
   predio: {
+    id: string;
     nombrePredio: string;
     departamento: string;
     municipio: string;
@@ -74,19 +76,22 @@ export default async function LoteDetallePage({
   let lote: LoteDetalle;
   let campanas: CampanaLote[] = [];
   let plantas: PlantaLote[] = [];
+  let eudrEstado: EudrEstadoLote | null = null;
 
   const token = cookies().get("ac_token")?.value ?? "";
 
   try {
-    const [resLote, resCampanas, resPlantas] = await Promise.all([
+    const [resLote, resCampanas, resPlantas, resEudr] = await Promise.all([
       apiFetch<{ success: boolean; data: LoteDetalle }>(`/api/lotes/${id}`),
       apiFetch<{ campanas: CampanaLote[] }>(`/api/campanas?loteId=${id}`).catch(() => ({ campanas: [] })),
       apiFetch<{ plantas: PlantaLote[] }>(`/api/lotes/${id}/plantas`).catch(() => ({ plantas: [] })),
+      apiFetch<{ estado: EudrEstadoLote }>(`/api/eudr/lotes/${id}/estado`).catch(() => null),
     ]);
     if (!resLote.success) notFound();
     lote = resLote.data;
     campanas = resCampanas.campanas;
     plantas = resPlantas.plantas;
+    eudrEstado = resEudr?.estado ?? null;
   } catch {
     notFound();
   }
@@ -194,6 +199,12 @@ export default async function LoteDetallePage({
               <span className="ml-2 text-xs font-normal text-gray-400">({plantas.length})</span>
             </h2>
             <PlantasGrid plantas={plantas} />
+          </div>
+
+          {/* EUDR — deforestación cero (Reglamento UE 2023/1115) */}
+          <div className="card">
+            <h2 className="font-semibold text-gray-800 mb-4">EUDR — Deforestación cero</h2>
+            <EudrSeccion loteId={lote.id} estadoInicial={eudrEstado} token={token} />
           </div>
 
           {/* Campañas del lote */}

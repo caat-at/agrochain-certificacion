@@ -230,6 +230,7 @@ export interface EudrEstadoLote {
   tienePoligono: boolean;
   poligonoVersion: number | null;
   tieneDeclaracionVigente: boolean;
+  declaracionId: string | null;
   declaracionEstado: string | null;
   libreDeforestacion: boolean | null;
   cumpleUmbral: boolean;
@@ -259,6 +260,7 @@ export async function getEudrEstadoLote(loteId: string): Promise<EudrEstadoLote>
     tienePoligono: !!poligono,
     poligonoVersion: poligono?.version ?? null,
     tieneDeclaracionVigente: !!declaracion,
+    declaracionId: declaracion?.id ?? null,
     declaracionEstado: declaracion?.estado ?? null,
     libreDeforestacion: declaracion?.libreDeforestacion ?? null,
     cumpleUmbral,

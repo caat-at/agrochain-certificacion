@@ -47,6 +47,13 @@ const HomeIcon = () => (
       d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 0 0 1 1h3m10-11l2 2m-2-2v10a1 1 0 0 1-1 1h-3m-6 0a1 1 0 0 0 1-1v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4a1 1 0 0 0 1 1m-6 0h6" />
   </svg>
 );
+const MapPinIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+      d="M17.657 16.657L13.414 20.9a2 2 0 0 1-2.827 0l-4.244-4.243a8 8 0 1 1 11.314 0z" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 11a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />
+  </svg>
+);
 
 const NAV: NavItem[] = [
   {
@@ -60,6 +67,12 @@ const NAV: NavItem[] = [
     label: "Mis Lotes",
     icon: <LeafIcon />,
     roles: ["ADMIN", "AGRICULTOR", "INSPECTOR_BPA", "INSPECTOR_ICA", "CERTIFICADORA", "INVIMA"],
+  },
+  {
+    href: "/predios",
+    label: "Predios",
+    icon: <MapPinIcon />,
+    roles: ["ADMIN", "AGRICULTOR", "CERTIFICADORA"],
   },
   {
     href: "/inspecciones",

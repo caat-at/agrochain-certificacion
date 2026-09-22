@@ -10,6 +10,7 @@ const TIPOS = [
   { value: "GLOBAL_GAP",        label: "GlobalG.A.P" },
   { value: "RAINFOREST",        label: "Rainforest Alliance" },
   { value: "INVIMA_INOCUIDAD",  label: "INVIMA Inocuidad" },
+  { value: "STBN",              label: "STBN (PlanetAI Nature Space)" },
 ];
 
 export default function EmitirCertificadoBtn({
