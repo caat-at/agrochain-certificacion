@@ -14,6 +14,9 @@ export interface StbnSubcriterio {
   puntajeBajo: number;
   descripcionAlto: string;
   descripcionBajo: string;
+  nombreEs: string | null;
+  descripcionAltoEs: string | null;
+  descripcionBajoEs: string | null;
 }
 
 interface AdjuntoBinario {

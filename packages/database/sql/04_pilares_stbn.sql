@@ -44,14 +44,21 @@ CREATE TABLE stbn_evidencias_pilar_binarios (
 -- Sembrado en seed/stbn-subcriterios.ts, nunca editado desde la app (mismo
 -- patron que numerales_ntc5400).
 CREATE TABLE stbn_subcriterios (
-  codigo           varchar(20) PRIMARY KEY, -- ej. CONS_A, CONS_B, COMU_A...
-  pilar            varchar(30) NOT NULL,
-  nombre           varchar(200) NOT NULL,
-  orden            integer NOT NULL,        -- posicion dentro del pilar (A=1, B=2)
-  puntaje_alto     numeric(4,1) NOT NULL,
-  puntaje_bajo     numeric(4,1) NOT NULL,
-  descripcion_alto text NOT NULL,
-  descripcion_bajo text NOT NULL
+  codigo              varchar(20) PRIMARY KEY, -- ej. CONS_A, CONS_B, COMU_A...
+  pilar               varchar(30) NOT NULL,
+  nombre              varchar(200) NOT NULL,   -- texto oficial en ingles (documento PNSS 0000404)
+  orden               integer NOT NULL,        -- posicion dentro del pilar (A=1, B=2)
+  puntaje_alto        numeric(4,1) NOT NULL,
+  puntaje_bajo        numeric(4,1) NOT NULL,
+  descripcion_alto    text NOT NULL,
+  descripcion_bajo    text NOT NULL,
+  -- Traduccion al espanol para la UI del evaluador colombiano — el ingles
+  -- de arriba se conserva intacto como referencia al documento del
+  -- certificador (ver 05_stbn_traduccion.sql para la version ALTER TABLE
+  -- que aplica sobre una base ya existente).
+  nombre_es           varchar(200),
+  descripcion_alto_es text,
+  descripcion_bajo_es text
 );
 
 -- ── Evaluacion (cabecera) ─────────────────────────────────────────────────────

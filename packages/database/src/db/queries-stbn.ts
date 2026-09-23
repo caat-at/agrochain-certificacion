@@ -28,10 +28,13 @@ const SUBCRITERIO_COLUMNS = `
   pilar,
   nombre,
   orden,
-  puntaje_alto     AS "puntajeAlto",
-  puntaje_bajo     AS "puntajeBajo",
-  descripcion_alto AS "descripcionAlto",
-  descripcion_bajo AS "descripcionBajo"
+  puntaje_alto        AS "puntajeAlto",
+  puntaje_bajo        AS "puntajeBajo",
+  descripcion_alto    AS "descripcionAlto",
+  descripcion_bajo    AS "descripcionBajo",
+  nombre_es           AS "nombreEs",
+  descripcion_alto_es AS "descripcionAltoEs",
+  descripcion_bajo_es AS "descripcionBajoEs"
 `;
 
 export async function listSubcriteriosStbn(): Promise<StbnSubcriterio[]> {

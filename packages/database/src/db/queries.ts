@@ -1,5 +1,5 @@
 import pool from "./client.js";
-import type { Usuario, Organizacion, Predio, Lote, Planta, Inspeccion, Certificado, EventoProduccion, EvidenciaBinaria } from "../types.js";
+import type { Usuario, Organizacion, Predio, Lote, Planta, Inspeccion, Certificado, EventoProduccion, EvidenciaBinaria, AgricultorContacto } from "../types.js";
 
 // =============================================================================
 // AGROCHAIN - Acceso a datos SQL directo (sin ORM)
@@ -168,30 +168,49 @@ export async function getOrganizacionById(id: string): Promise<Organizacion | nu
 
 // ── Predios ───────────────────────────────────────────────────────────────────
 
+// Columnas prefijadas con "predios." (en vez de solo cuando hace falta) para
+// que esta constante siga siendo segura de usar con JOIN a otras tablas
+// (ej. usuarios, que comparte id/activo/created_at/updated_at) sin volver a
+// producir "column reference is ambiguous".
 const PREDIO_COLUMNS = `
-  id,
-  agricultor_id              AS "agricultorId",
-  nombre_predio              AS "nombrePredio",
-  codigo_ica                 AS "codigoIca",
-  matricula_inmobiliaria     AS "matriculaInmobiliaria",
-  departamento, municipio, vereda, direccion, latitud, longitud,
-  altitud_msnm               AS "altitudMsnm",
-  area_total_ha              AS "areaTotalHa",
-  area_productiva_ha         AS "areaProductivaHa",
-  area_bosque_ha             AS "areaBosqueHa",
-  area_viveros_ha            AS "areaViverosHa",
-  fuente_agua                AS "fuenteAgua",
-  tipo_suelo                 AS "tipoSuelo",
-  pendiente_pct              AS "pendientePct",
-  uso_previo                 AS "usoPrevio",
-  certif_uso_suelo           AS "certifUsoSuelo",
-  tiene_bodega_agroquimicos  AS "tieneBodegaAgroquimicos",
-  tiene_agua_potable         AS "tieneAguaPotable",
-  tiene_sss_basicas          AS "tieneSSSBasicas",
-  tiene_zona_acopio          AS "tieneZonaAcopio",
-  activo,
-  created_at                 AS "createdAt",
-  updated_at                 AS "updatedAt"
+  predios.id,
+  predios.agricultor_id              AS "agricultorId",
+  predios.nombre_predio              AS "nombrePredio",
+  predios.codigo_ica                 AS "codigoIca",
+  predios.matricula_inmobiliaria     AS "matriculaInmobiliaria",
+  predios.departamento, predios.municipio, predios.vereda, predios.direccion,
+  predios.latitud, predios.longitud,
+  predios.altitud_msnm               AS "altitudMsnm",
+  predios.area_total_ha              AS "areaTotalHa",
+  predios.area_productiva_ha         AS "areaProductivaHa",
+  predios.area_bosque_ha             AS "areaBosqueHa",
+  predios.area_viveros_ha            AS "areaViverosHa",
+  predios.fuente_agua                AS "fuenteAgua",
+  predios.tipo_suelo                 AS "tipoSuelo",
+  predios.pendiente_pct              AS "pendientePct",
+  predios.uso_previo                 AS "usoPrevio",
+  predios.certif_uso_suelo           AS "certifUsoSuelo",
+  predios.tiene_bodega_agroquimicos  AS "tieneBodegaAgroquimicos",
+  predios.tiene_agua_potable         AS "tieneAguaPotable",
+  predios.tiene_sss_basicas          AS "tieneSSSBasicas",
+  predios.tiene_zona_acopio          AS "tieneZonaAcopio",
+  predios.activo,
+  predios.created_at                 AS "createdAt",
+  predios.updated_at                 AS "updatedAt"
+`;
+
+// Datos de contacto del propietario/agricultor del predio — el certificador
+// necesita saber a quien pertenece la finca, no solo su agricultor_id.
+const AGRICULTOR_PREDIO_COLUMNS = `
+  json_build_object(
+    'id', ag.id,
+    'nombres', ag.nombres,
+    'apellidos', ag.apellidos,
+    'tipoDocumento', ag.tipo_documento,
+    'numeroDocumento', ag.numero_documento,
+    'email', ag.email,
+    'telefono', ag.telefono
+  ) AS "agricultor"
 `;
 
 export async function getPredioById(id: string): Promise<Predio | null> {
@@ -203,26 +222,28 @@ export async function getPredioById(id: string): Promise<Predio | null> {
 }
 
 export async function listPredios(filtros: { agricultorId?: string; soloActivos?: boolean } = {}): Promise<
-  Array<Predio & { totalLotes: number }>
+  Array<Predio & { totalLotes: number; agricultor: AgricultorContacto }>
 > {
   const conditions: string[] = [];
   const params: unknown[] = [];
   if (filtros.agricultorId) {
     params.push(filtros.agricultorId);
-    conditions.push(`agricultor_id = $${params.length}`);
+    conditions.push(`predios.agricultor_id = $${params.length}`);
   }
   if (filtros.soloActivos) {
-    conditions.push(`activo = true`);
+    conditions.push(`predios.activo = true`);
   }
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
-  const { rows } = await pool.query<Predio & { totalLotes: number }>(
+  const { rows } = await pool.query<Predio & { totalLotes: number; agricultor: AgricultorContacto }>(
     `SELECT
        ${PREDIO_COLUMNS},
+       ${AGRICULTOR_PREDIO_COLUMNS},
        (SELECT count(*)::int FROM lotes l WHERE l.predio_id = predios.id) AS "totalLotes"
      FROM predios
+     JOIN usuarios ag ON ag.id = predios.agricultor_id
      ${where}
-     ORDER BY created_at DESC`,
+     ORDER BY predios.created_at DESC`,
     params
   );
   return rows;
@@ -231,16 +252,19 @@ export async function listPredios(filtros: { agricultorId?: string; soloActivos?
 export async function getPredioConLotes(
   id: string,
   filtros: { agricultorId?: string } = {}
-): Promise<(Predio & { lotes: unknown[] }) | null> {
-  const conditions: string[] = [`id = $1`];
+): Promise<(Predio & { agricultor: AgricultorContacto; lotes: unknown[] }) | null> {
+  const conditions: string[] = [`predios.id = $1`];
   const params: unknown[] = [id];
   if (filtros.agricultorId) {
     params.push(filtros.agricultorId);
-    conditions.push(`agricultor_id = $${params.length}`);
+    conditions.push(`predios.agricultor_id = $${params.length}`);
   }
 
-  const { rows } = await pool.query<Predio>(
-    `SELECT ${PREDIO_COLUMNS} FROM predios WHERE ${conditions.join(" AND ")}`,
+  const { rows } = await pool.query<Predio & { agricultor: AgricultorContacto }>(
+    `SELECT ${PREDIO_COLUMNS}, ${AGRICULTOR_PREDIO_COLUMNS}
+     FROM predios
+     JOIN usuarios ag ON ag.id = predios.agricultor_id
+     WHERE ${conditions.join(" AND ")}`,
     params
   );
   const predio = rows[0];

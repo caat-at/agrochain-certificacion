@@ -17,6 +17,15 @@ interface LotePredio {
   loteIdOnchain: string | null;
 }
 
+interface AgricultorContacto {
+  nombres: string;
+  apellidos: string;
+  tipoDocumento: string;
+  numeroDocumento: string;
+  email: string | null;
+  telefono: string | null;
+}
+
 interface PredioDetalle {
   id: string;
   nombrePredio: string;
@@ -29,6 +38,7 @@ interface PredioDetalle {
   latitud: number;
   longitud: number;
   altitudMsnm: number | null;
+  agricultor: AgricultorContacto;
   lotes: LotePredio[];
 }
 
@@ -141,6 +151,40 @@ export default async function PredioDetallePage({ params }: { params: { id: stri
 
         {/* Columna derecha: evaluación + puntaje */}
         <div className="space-y-6">
+          {/* Propietario */}
+          <div className="card">
+            <h2 className="font-semibold text-gray-800 mb-3">Propietario</h2>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-verde-50 rounded-full flex items-center justify-center text-verde-500 font-semibold">
+                {predio.agricultor.nombres.charAt(0)}
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-900">
+                  {predio.agricultor.nombres} {predio.agricultor.apellidos}
+                </p>
+                <p className="text-xs text-gray-400">
+                  {predio.agricultor.tipoDocumento} {predio.agricultor.numeroDocumento}
+                </p>
+              </div>
+            </div>
+            {(predio.agricultor.telefono || predio.agricultor.email) && (
+              <dl className="mt-3 pt-3 border-t border-gray-100 space-y-1.5 text-xs">
+                {predio.agricultor.telefono && (
+                  <div className="flex justify-between">
+                    <dt className="text-gray-400">Teléfono</dt>
+                    <dd className="text-gray-700 font-medium">{predio.agricultor.telefono}</dd>
+                  </div>
+                )}
+                {predio.agricultor.email && (
+                  <div className="flex justify-between">
+                    <dt className="text-gray-400">Email</dt>
+                    <dd className="text-gray-700 font-medium">{predio.agricultor.email}</dd>
+                  </div>
+                )}
+              </dl>
+            )}
+          </div>
+
           <div className="card">
             <h2 className="font-semibold text-gray-800 mb-4">Evaluación STBN</h2>
             <StbnEvaluacionSeccion

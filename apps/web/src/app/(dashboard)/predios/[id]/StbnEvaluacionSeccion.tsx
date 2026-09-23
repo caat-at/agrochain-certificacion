@@ -221,31 +221,38 @@ export function StbnEvaluacionSeccion({
                   const cal = calMap.get(s.codigo);
                   return (
                     <div key={s.codigo} className="bg-gray-50 rounded-lg p-3">
-                      <p className="text-xs font-medium text-gray-700 mb-2">{s.nombre}</p>
-                      <div className="flex gap-2">
+                      <p className="text-xs font-medium text-gray-700">{s.nombreEs ?? s.nombre}</p>
+                      {s.nombreEs && <p className="text-[10px] text-gray-400 italic mb-2">{s.nombre}</p>}
+                      <div className="grid grid-cols-2 gap-2 mt-2">
                         <button
                           type="button"
                           disabled={guardandoCodigo === s.codigo}
                           onClick={() => handleCalificar(s.codigo, "ALTO")}
-                          className={`flex-1 text-xs py-1.5 rounded-lg border transition-colors ${
+                          className={`text-left text-xs p-2 rounded-lg border transition-colors ${
                             cal?.nivel === "ALTO"
                               ? "bg-emerald-500 border-emerald-500 text-white"
-                              : "border-gray-200 text-gray-500 hover:bg-gray-100"
+                              : "border-gray-200 text-gray-600 hover:bg-gray-100"
                           }`}
                         >
-                          Alto ({s.puntajeAlto})
+                          <span className="font-semibold block mb-0.5">Alto ({s.puntajeAlto})</span>
+                          <span className={cal?.nivel === "ALTO" ? "text-emerald-50" : "text-gray-400"}>
+                            {s.descripcionAltoEs ?? s.descripcionAlto}
+                          </span>
                         </button>
                         <button
                           type="button"
                           disabled={guardandoCodigo === s.codigo}
                           onClick={() => handleCalificar(s.codigo, "BAJO")}
-                          className={`flex-1 text-xs py-1.5 rounded-lg border transition-colors ${
+                          className={`text-left text-xs p-2 rounded-lg border transition-colors ${
                             cal?.nivel === "BAJO"
                               ? "bg-amber-500 border-amber-500 text-white"
-                              : "border-gray-200 text-gray-500 hover:bg-gray-100"
+                              : "border-gray-200 text-gray-600 hover:bg-gray-100"
                           }`}
                         >
-                          Bajo ({s.puntajeBajo})
+                          <span className="font-semibold block mb-0.5">Bajo ({s.puntajeBajo})</span>
+                          <span className={cal?.nivel === "BAJO" ? "text-amber-50" : "text-gray-400"}>
+                            {s.descripcionBajoEs ?? s.descripcionBajo}
+                          </span>
                         </button>
                       </div>
                     </div>

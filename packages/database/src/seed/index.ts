@@ -47,15 +47,19 @@ async function seed() {
   for (const sub of stbnSubcriterios) {
     await pool.query(
       `INSERT INTO stbn_subcriterios
-         (codigo, pilar, nombre, orden, puntaje_alto, puntaje_bajo, descripcion_alto, descripcion_bajo)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         (codigo, pilar, nombre, orden, puntaje_alto, puntaje_bajo, descripcion_alto, descripcion_bajo,
+          nombre_es, descripcion_alto_es, descripcion_bajo_es)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        ON CONFLICT (codigo) DO UPDATE SET
          pilar = EXCLUDED.pilar, nombre = EXCLUDED.nombre, orden = EXCLUDED.orden,
          puntaje_alto = EXCLUDED.puntaje_alto, puntaje_bajo = EXCLUDED.puntaje_bajo,
-         descripcion_alto = EXCLUDED.descripcion_alto, descripcion_bajo = EXCLUDED.descripcion_bajo`,
+         descripcion_alto = EXCLUDED.descripcion_alto, descripcion_bajo = EXCLUDED.descripcion_bajo,
+         nombre_es = EXCLUDED.nombre_es, descripcion_alto_es = EXCLUDED.descripcion_alto_es,
+         descripcion_bajo_es = EXCLUDED.descripcion_bajo_es`,
       [
         sub.codigo, sub.pilar, sub.nombre, sub.orden,
         sub.puntajeAlto, sub.puntajeBajo, sub.descripcionAlto, sub.descripcionBajo,
+        sub.nombreEs, sub.descripcionAltoEs, sub.descripcionBajoEs,
       ]
     );
   }

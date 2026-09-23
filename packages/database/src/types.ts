@@ -120,6 +120,18 @@ export interface Predio {
   updatedAt: Date;
 }
 
+// Datos de contacto del propietario del predio (join contra usuarios) —
+// devuelto por getPredioConLotes/listPredios, no por getPredioById.
+export interface AgricultorContacto {
+  id: string;
+  nombres: string;
+  apellidos: string;
+  tipoDocumento: TipoDocumento;
+  numeroDocumento: string;
+  email: string | null;
+  telefono: string | null;
+}
+
 export interface Lote {
   id: string;
   predioId: string;
@@ -445,12 +457,15 @@ export interface StbnEvidenciaPilar {
 export interface StbnSubcriterio {
   codigo: string;
   pilar: PilarStbn;
-  nombre: string;
+  nombre: string; // texto oficial en ingles (documento PNSS 0000404)
   orden: number;
   puntajeAlto: number;
   puntajeBajo: number;
   descripcionAlto: string;
   descripcionBajo: string;
+  nombreEs: string | null;
+  descripcionAltoEs: string | null;
+  descripcionBajoEs: string | null;
 }
 
 export interface StbnEvaluacion {

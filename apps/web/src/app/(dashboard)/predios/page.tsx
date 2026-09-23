@@ -10,6 +10,7 @@ interface PredioItem {
   vereda: string | null;
   areaTotalHa: number;
   totalLotes: number;
+  agricultor: { nombres: string; apellidos: string };
 }
 
 export default async function PrediosPage() {
@@ -41,6 +42,7 @@ export default async function PrediosPage() {
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50">
               <th className="text-left px-4 py-3 font-medium text-gray-500">Predio</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-500">Propietario</th>
               <th className="text-left px-4 py-3 font-medium text-gray-500">Ubicación</th>
               <th className="text-left px-4 py-3 font-medium text-gray-500">Área total</th>
               <th className="text-left px-4 py-3 font-medium text-gray-500">Lotes</th>
@@ -51,6 +53,7 @@ export default async function PrediosPage() {
             {predios.map((p) => (
               <tr key={p.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3 font-medium text-gray-900">{p.nombrePredio}</td>
+                <td className="px-4 py-3 text-gray-600">{p.agricultor.nombres} {p.agricultor.apellidos}</td>
                 <td className="px-4 py-3 text-gray-500">
                   {p.municipio}, {p.departamento}
                   {p.vereda ? ` · ${p.vereda}` : ""}
@@ -66,7 +69,7 @@ export default async function PrediosPage() {
             ))}
             {predios.length === 0 && !error && (
               <tr>
-                <td colSpan={5} className="px-4 py-12 text-center text-gray-400">
+                <td colSpan={6} className="px-4 py-12 text-center text-gray-400">
                   Sin predios registrados
                 </td>
               </tr>
