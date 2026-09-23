@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import bcrypt from "bcrypt";
-import { getUsuarioByEmail, getUsuarioById, getUsuarioByCognitoSub, createUsuario, updateUsuario } from "@agrochain/database";
+import { getUsuarioByEmail, getUsuarioByUsernameOrEmail, getUsuarioById, getUsuarioByCognitoSub, createUsuario, updateUsuario } from "@agrochain/database";
 import { createHash } from "crypto";
 import {
   isCognitoConfigured,
@@ -10,8 +10,11 @@ import {
   cognitoGetUser,
 } from "../services/cognito.js";
 
+// "email" acepta tanto un email real como un username local (patron SSE:
+// login con username o email indistinto) — ya no se puede validar como
+// email en el shape de entrada, se resuelve en el handler.
 const LoginSchema = z.object({
-  email:    z.string().email(),
+  email:    z.string().min(1),
   password: z.string().min(1),
 });
 
@@ -32,12 +35,13 @@ function esHashBcrypt(hash: string): boolean {
   return hash.startsWith("$2a$") || hash.startsWith("$2b$") || hash.startsWith("$2y$");
 }
 
-function usuarioPublico(usuario: { id: string; nombres: string; apellidos: string; email: string | null; rol: string }) {
+function usuarioPublico(usuario: { id: string; nombres: string; apellidos: string; email: string | null; username?: string | null; rol: string }) {
   return {
-    id:     usuario.id,
-    nombre: `${usuario.nombres} ${usuario.apellidos}`,
-    email:  usuario.email,
-    rol:    usuario.rol,
+    id:       usuario.id,
+    nombre:   `${usuario.nombres} ${usuario.apellidos}`,
+    email:    usuario.email,
+    username: usuario.username ?? null,
+    rol:      usuario.rol,
   };
 }
 
@@ -49,7 +53,21 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.status(400).send({ message: "Email y contraseña requeridos" });
     }
 
-    const { email, password } = parsed.data;
+    const { email: credencial, password } = parsed.data;
+
+    // Cognito usa el email como Username inmutable — si la credencial no
+    // parece un email (login con username local), hay que resolverla primero
+    // contra Postgres para saber a que email de Cognito corresponde. Si sí
+    // parece un email, se mantiene el flujo intacto (incluye auto-provisioning
+    // para usuarios que existen en Cognito pero aun no en la tabla local).
+    let email = credencial;
+    if (isCognitoConfigured() && !credencial.includes("@")) {
+      const usuarioPorUsername = await getUsuarioByUsernameOrEmail(credencial);
+      if (!usuarioPorUsername?.email) {
+        return reply.status(401).send({ message: "Credenciales inválidas" });
+      }
+      email = usuarioPorUsername.email;
+    }
 
     // ── Flujo Cognito (activo solo si COGNITO_USER_POOL_ID/CLIENT_ID están configurados) ──
     if (isCognitoConfigured()) {
@@ -102,7 +120,7 @@ export async function authRoutes(app: FastifyInstance) {
     }
 
     // ── Fallback local (Cognito no configurado — fase de desarrollo local) ──
-    const usuario = await getUsuarioByEmail(email);
+    const usuario = await getUsuarioByUsernameOrEmail(credencial);
     if (!usuario || !usuario.activo || !usuario.passwordHash) {
       return reply.status(401).send({ message: "Credenciales inválidas" });
     }

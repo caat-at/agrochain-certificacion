@@ -13,6 +13,7 @@ const ROLES = [
 ];
 
 const PASSWORD_REGEX = /^.{8,}$/;
+const USERNAME_REGEX = /^[a-z0-9._-]{3,50}$/i;
 
 interface Props {
   usuario: {
@@ -20,6 +21,7 @@ interface Props {
     nombres: string;
     apellidos: string;
     email: string | null;
+    username: string | null;
     rol: string;
     activo: boolean;
     tieneCuentaCognito: boolean;
@@ -35,6 +37,7 @@ export function EditarUsuarioBtn({ usuario }: Props) {
   const [nombres,   setNombres]   = useState(usuario.nombres);
   const [apellidos, setApellidos] = useState(usuario.apellidos);
   const [email,     setEmail]     = useState(usuario.email ?? "");
+  const [username,  setUsername]  = useState(usuario.username ?? "");
   const [rol,       setRol]       = useState(usuario.rol);
   const [activo,    setActivo]    = useState(usuario.activo);
   const [password,  setPassword]  = useState("");
@@ -47,6 +50,7 @@ export function EditarUsuarioBtn({ usuario }: Props) {
     setNombres(usuario.nombres);
     setApellidos(usuario.apellidos);
     setEmail(usuario.email ?? "");
+    setUsername(usuario.username ?? "");
     setRol(usuario.rol);
     setActivo(usuario.activo);
   }
@@ -56,6 +60,10 @@ export function EditarUsuarioBtn({ usuario }: Props) {
     if (!nombres.trim())   { setError("El nombre es obligatorio."); return; }
     if (!apellidos.trim()) { setError("Los apellidos son obligatorios."); return; }
     if (!email.trim())     { setError("El email es obligatorio."); return; }
+    if (username.trim() && !USERNAME_REGEX.test(username.trim())) {
+      setError("El username debe tener 3-50 caracteres: letras, números, puntos, guiones o guión bajo.");
+      return;
+    }
     if (password && !PASSWORD_REGEX.test(password)) {
       setError("La contraseña debe tener mínimo 8 caracteres.");
       return;
@@ -66,6 +74,7 @@ export function EditarUsuarioBtn({ usuario }: Props) {
 
     try {
       const body: any = { nombres: nombres.trim(), apellidos: apellidos.trim(), email: email.trim(), rol, activo };
+      if (username.trim()) body.username = username.trim();
       if (password) body.password = password;
 
       const res = await fetch(`/api/usuarios/${usuario.id}`, {
@@ -149,6 +158,19 @@ export function EditarUsuarioBtn({ usuario }: Props) {
                     No se puede cambiar: es el usuario de acceso en Cognito. Desactiva la cuenta y crea una nueva si necesita otro correo.
                   </p>
                 )}
+              </div>
+
+              {/* Username */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Username</label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="Ej: operario1, coord-cafe..."
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-verde-400"
+                />
+                <p className="text-xs text-gray-400 mt-1">Sirve para iniciar sesión además del email.</p>
               </div>
 
               {/* Rol + Estado */}

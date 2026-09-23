@@ -65,6 +65,7 @@ export interface Usuario {
   tipoDocumento: TipoDocumento;
   numeroDocumento: string;
   email: string | null;
+  username: string | null;
   telefono: string | null;
   walletAddress: string | null;
   passwordHash: string | null;

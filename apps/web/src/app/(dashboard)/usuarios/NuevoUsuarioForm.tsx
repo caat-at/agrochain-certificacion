@@ -10,6 +10,7 @@ function getToken(): string {
 }
 
 const PASSWORD_REGEX = /^.{8,}$/;
+const USERNAME_REGEX = /^[a-z0-9._-]{3,50}$/i;
 
 const ROLES = [
   { value: "TECNICO",       label: "Técnico" },
@@ -29,6 +30,7 @@ export function NuevoUsuarioForm() {
   const [nombres, setNombres]     = useState("");
   const [apellidos, setApellidos] = useState("");
   const [email, setEmail]         = useState("");
+  const [username, setUsername]   = useState("");
   const [password, setPassword]   = useState("");
   const [rol, setRol]             = useState("TECNICO");
 
@@ -40,6 +42,7 @@ export function NuevoUsuarioForm() {
     setNombres("");
     setApellidos("");
     setEmail("");
+    setUsername("");
     setPassword("");
     setRol("TECNICO");
   }
@@ -49,6 +52,10 @@ export function NuevoUsuarioForm() {
     if (!nombres.trim()) { setError("El nombre es obligatorio."); return; }
     if (!apellidos.trim()) { setError("Los apellidos son obligatorios."); return; }
     if (!email.trim()) { setError("El email es obligatorio."); return; }
+    if (!USERNAME_REGEX.test(username.trim())) {
+      setError("El username debe tener 3-50 caracteres: letras, números, puntos, guiones o guión bajo.");
+      return;
+    }
     if (!PASSWORD_REGEX.test(password)) {
       setError("La contraseña debe tener mínimo 8 caracteres.");
       return;
@@ -63,7 +70,14 @@ export function NuevoUsuarioForm() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${getToken()}`,
         },
-        body: JSON.stringify({ nombres: nombres.trim(), apellidos: apellidos.trim(), email: email.trim(), password, rol }),
+        body: JSON.stringify({
+          nombres: nombres.trim(),
+          apellidos: apellidos.trim(),
+          email: email.trim(),
+          username: username.trim(),
+          password,
+          rol,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message ?? `HTTP ${res.status}`);
@@ -133,6 +147,21 @@ export function NuevoUsuarioForm() {
                 className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-verde-400"
               />
             </div>
+          </div>
+
+          {/* Username */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">
+              Username
+            </label>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Ej: operario1, coord-cafe..."
+              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-verde-400"
+            />
+            <p className="text-xs text-gray-400 mt-1">Sirve para iniciar sesión además del email.</p>
           </div>
 
           {/* Email */}

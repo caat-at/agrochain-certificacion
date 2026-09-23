@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   listUsuarios,
   getUsuarioByEmail,
+  getUsuarioByUsername,
   getUsuarioById,
   createUsuario,
   updateUsuario,
@@ -27,10 +28,18 @@ function sha256(text: string): string {
 // si Cognito esta activo como en el fallback local.
 const PasswordSchema = z.string().min(8, "Mínimo 8 caracteres");
 
+// Patron simple tipo SSE (operario1, coord-cafe) — solo local, no toca Cognito.
+const UsernameSchema = z
+  .string()
+  .min(3, "Mínimo 3 caracteres")
+  .max(50)
+  .regex(/^[a-z0-9._-]+$/i, "Solo letras, números, puntos, guiones y guión bajo");
+
 const CrearUsuarioSchema = z.object({
   nombres:    z.string().min(1),
   apellidos:  z.string().min(1),
   email:      z.string().email(),
+  username:   UsernameSchema,
   password:   PasswordSchema,
   rol:        z.enum(["ADMIN", "TECNICO", "AGRICULTOR", "INSPECTOR_ICA", "INSPECTOR_BPA", "CERTIFICADORA", "INVIMA"]),
 });
@@ -42,6 +51,7 @@ function toPublico(usuario: Awaited<ReturnType<typeof getUsuarioById>>) {
     nombres: usuario.nombres,
     apellidos: usuario.apellidos,
     email: usuario.email,
+    username: usuario.username,
     rol: usuario.rol,
     activo: usuario.activo,
     createdAt: usuario.createdAt,
@@ -75,11 +85,16 @@ export async function usuariosRoutes(app: FastifyInstance) {
       return reply.status(400).send({ message: "Datos inválidos", errors: parsed.error.flatten().fieldErrors });
     }
 
-    const { nombres, apellidos, email, password, rol } = parsed.data;
+    const { nombres, apellidos, email, username, password, rol } = parsed.data;
 
     const existente = await getUsuarioByEmail(email);
     if (existente) {
       return reply.status(409).send({ message: "Ya existe un usuario con ese email" });
+    }
+
+    const usernameEnUso = await getUsuarioByUsername(username);
+    if (usernameEnUso) {
+      return reply.status(409).send({ message: "Ya existe un usuario con ese username" });
     }
 
     // Documento provisional unico — el flujo actual no pide documento al crear
@@ -104,6 +119,7 @@ export async function usuariosRoutes(app: FastifyInstance) {
       nombres,
       apellidos,
       email,
+      username,
       passwordHash: isCognitoConfigured() ? null : sha256(password),
       cognitoSub,
       rol,
@@ -131,6 +147,7 @@ export async function usuariosRoutes(app: FastifyInstance) {
         nombres:   z.string().min(1).optional(),
         apellidos: z.string().min(1).optional(),
         email:     z.string().email().optional(),
+        username:  UsernameSchema.optional(),
         rol:       z.enum(["ADMIN", "TECNICO", "AGRICULTOR", "INSPECTOR_ICA", "INSPECTOR_BPA", "CERTIFICADORA", "INVIMA"]).optional(),
         activo:    z.boolean().optional(),
         password:  PasswordSchema.optional(),
@@ -155,6 +172,13 @@ export async function usuariosRoutes(app: FastifyInstance) {
         }
         const emailEnUso = await getUsuarioByEmail(parsed.data.email);
         if (emailEnUso) return reply.status(409).send({ message: "Ya existe un usuario con ese email" });
+      }
+
+      // Username es puramente local (Cognito no lo conoce) — sin restriccion
+      // de Cognito aqui, solo se valida unicidad.
+      if (parsed.data.username && parsed.data.username !== existente.username) {
+        const usernameEnUso = await getUsuarioByUsername(parsed.data.username);
+        if (usernameEnUso) return reply.status(409).send({ message: "Ya existe un usuario con ese username" });
       }
 
       // Propagar a Cognito antes de tocar Postgres — si el IdP rechaza el

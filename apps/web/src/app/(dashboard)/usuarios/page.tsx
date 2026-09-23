@@ -10,6 +10,7 @@ interface UsuarioItem {
   nombres: string;
   apellidos: string;
   email: string | null;
+  username: string | null;
   rol: string;
   activo: boolean;
   createdAt: string;
@@ -58,6 +59,7 @@ export default async function UsuariosPage() {
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50">
               <th className="text-left px-4 py-3 font-medium text-gray-500">Nombre</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-500">Username</th>
               <th className="text-left px-4 py-3 font-medium text-gray-500">Email</th>
               <th className="text-left px-4 py-3 font-medium text-gray-500">Rol</th>
               <th className="text-left px-4 py-3 font-medium text-gray-500">Estado</th>
@@ -73,6 +75,7 @@ export default async function UsuariosPage() {
                 <td className="px-4 py-3 font-medium text-gray-900">
                   {u.nombres} {u.apellidos}
                 </td>
+                <td className="px-4 py-3 text-gray-500 font-mono text-xs">{u.username ?? "—"}</td>
                 <td className="px-4 py-3 text-gray-500">{u.email ?? "—"}</td>
                 <td className="px-4 py-3">
                   <span className={`badge ${ROL_BADGE[u.rol] ?? "bg-gray-100 text-gray-600"}`}>
@@ -96,7 +99,7 @@ export default async function UsuariosPage() {
             ))}
             {usuarios.length === 0 && !error && (
               <tr>
-                <td colSpan={session?.rol === "ADMIN" ? 6 : 5} className="px-4 py-12 text-center text-gray-400">
+                <td colSpan={session?.rol === "ADMIN" ? 7 : 6} className="px-4 py-12 text-center text-gray-400">
                   Sin usuarios registrados
                 </td>
               </tr>

@@ -4,10 +4,10 @@ import { useRouter } from "next/navigation";
 
 export default function LoginForm() {
   const router = useRouter();
-  const [email,    setEmail]    = useState("agricultor@agrochain.co");
-  const [password, setPassword] = useState("password123");
-  const [error,    setError]    = useState<string | null>(null);
-  const [loading,  setLoading]  = useState(false);
+  const [credencial, setCredencial] = useState("");
+  const [password,   setPassword]   = useState("");
+  const [error,       setError]     = useState<string | null>(null);
+  const [loading,     setLoading]   = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -15,10 +15,14 @@ export default function LoginForm() {
     setLoading(true);
 
     try {
+      // Solo se normaliza a minusculas si parece un email — un username
+      // podria ser sensible a mayusculas/minusculas segun como se creo.
+      const valor = credencial.trim();
+      const esEmail = valor.includes("@");
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+        body: JSON.stringify({ email: esEmail ? valor.toLowerCase() : valor, password }),
       });
 
       const data = await res.json() as { message?: string };
@@ -39,14 +43,14 @@ export default function LoginForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <label className="label" htmlFor="email">Correo electrónico</label>
+        <label className="label" htmlFor="email">Email o usuario</label>
         <input
           id="email"
-          type="email"
+          type="text"
           className="input"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          autoComplete="email"
+          value={credencial}
+          onChange={(e) => setCredencial(e.target.value)}
+          autoComplete="username"
           required
         />
       </div>
@@ -76,8 +80,8 @@ export default function LoginForm() {
 
       <div className="mt-4 p-3 bg-verde-50 rounded-lg text-xs text-gray-500 space-y-0.5">
         <p className="font-medium text-gray-600">Cuentas demo:</p>
-        <p>agricultor@agrochain.co · admin@agrochain.co</p>
-        <p>Contraseña: <span className="font-mono">password123</span></p>
+        <p>admin@agrochain.co · <span className="font-mono">admin123</span></p>
+        <p>agricultor@agrochain.co · <span className="font-mono">12345678-</span></p>
       </div>
     </form>
   );

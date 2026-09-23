@@ -20,7 +20,7 @@ const USUARIO_COLUMNS = `
   id, nombres, apellidos,
   tipo_documento     AS "tipoDocumento",
   numero_documento   AS "numeroDocumento",
-  email, telefono,
+  email, username, telefono,
   wallet_address     AS "walletAddress",
   password_hash      AS "passwordHash",
   cognito_sub        AS "cognitoSub",
@@ -41,6 +41,25 @@ export async function getUsuarioByEmail(email: string): Promise<Usuario | null> 
   const { rows } = await pool.query<Usuario>(
     `SELECT ${USUARIO_COLUMNS} FROM usuarios WHERE email = $1`,
     [email]
+  );
+  return rows[0] ?? null;
+}
+
+export async function getUsuarioByUsername(username: string): Promise<Usuario | null> {
+  const { rows } = await pool.query<Usuario>(
+    `SELECT ${USUARIO_COLUMNS} FROM usuarios WHERE username = $1`,
+    [username]
+  );
+  return rows[0] ?? null;
+}
+
+// Login con username o email indistinto (patron SSE) — Cognito sigue usando
+// email como Username inmutable, esto solo resuelve la credencial local
+// antes de llamar al IdP con el email real (ver routes/auth.ts).
+export async function getUsuarioByUsernameOrEmail(credencial: string): Promise<Usuario | null> {
+  const { rows } = await pool.query<Usuario>(
+    `SELECT ${USUARIO_COLUMNS} FROM usuarios WHERE username = $1 OR email = $1`,
+    [credencial]
   );
   return rows[0] ?? null;
 }
@@ -82,6 +101,7 @@ export interface CreateUsuarioBody {
   tipoDocumento: string;
   numeroDocumento: string;
   email?: string | null;
+  username?: string | null;
   telefono?: string | null;
   walletAddress?: string | null;
   passwordHash?: string | null;
@@ -92,8 +112,8 @@ export interface CreateUsuarioBody {
 export async function createUsuario(body: CreateUsuarioBody): Promise<Usuario> {
   const { rows } = await pool.query<Usuario>(
     `INSERT INTO usuarios
-       (nombres, apellidos, tipo_documento, numero_documento, email, telefono, wallet_address, password_hash, cognito_sub, rol)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       (nombres, apellidos, tipo_documento, numero_documento, email, telefono, wallet_address, password_hash, cognito_sub, rol, username)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      RETURNING ${USUARIO_COLUMNS}`,
     [
       body.nombres,
@@ -106,6 +126,7 @@ export async function createUsuario(body: CreateUsuarioBody): Promise<Usuario> {
       body.passwordHash ?? null,
       body.cognitoSub ?? null,
       body.rol,
+      body.username ?? null,
     ]
   );
   return rows[0];
@@ -115,6 +136,7 @@ export interface UpdateUsuarioFields {
   nombres?: string;
   apellidos?: string;
   email?: string | null;
+  username?: string | null;
   telefono?: string | null;
   walletAddress?: string | null;
   passwordHash?: string;
@@ -133,6 +155,7 @@ export async function updateUsuario(
   if (fields.nombres !== undefined) { params.push(fields.nombres); sets.push(`nombres = $${params.length}`); }
   if (fields.apellidos !== undefined) { params.push(fields.apellidos); sets.push(`apellidos = $${params.length}`); }
   if (fields.email !== undefined) { params.push(fields.email); sets.push(`email = $${params.length}`); }
+  if (fields.username !== undefined) { params.push(fields.username); sets.push(`username = $${params.length}`); }
   if (fields.telefono !== undefined) { params.push(fields.telefono); sets.push(`telefono = $${params.length}`); }
   if (fields.walletAddress !== undefined) { params.push(fields.walletAddress); sets.push(`wallet_address = $${params.length}`); }
   if (fields.passwordHash !== undefined) { params.push(fields.passwordHash); sets.push(`password_hash = $${params.length}`); }
