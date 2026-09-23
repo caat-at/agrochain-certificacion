@@ -63,28 +63,28 @@ const NAV: NavItem[] = [
     roles: ["ADMIN", "AGRICULTOR", "INSPECTOR_BPA", "INSPECTOR_ICA", "CERTIFICADORA", "INVIMA"],
   },
   {
-    href: "/lotes",
-    label: "Mis Lotes",
-    icon: <LeafIcon />,
-    roles: ["ADMIN", "AGRICULTOR", "INSPECTOR_BPA", "INSPECTOR_ICA", "CERTIFICADORA", "INVIMA"],
-  },
-  {
     href: "/predios",
     label: "Predios",
     icon: <MapPinIcon />,
     roles: ["ADMIN", "AGRICULTOR", "CERTIFICADORA"],
   },
   {
-    href: "/inspecciones",
-    label: "Inspecciones",
-    icon: <ClipboardIcon />,
-    roles: ["ADMIN", "INSPECTOR_BPA", "INSPECTOR_ICA"],
+    href: "/lotes",
+    label: "Mis Lotes",
+    icon: <LeafIcon />,
+    roles: ["ADMIN", "AGRICULTOR", "INSPECTOR_BPA", "INSPECTOR_ICA", "CERTIFICADORA", "INVIMA"],
   },
   {
     href: "/campanas",
     label: "Campañas",
     icon: <CalendarIcon />,
     roles: ["ADMIN", "AGRICULTOR", "INSPECTOR_BPA", "INSPECTOR_ICA", "CERTIFICADORA", "INVIMA"],
+  },
+  {
+    href: "/inspecciones",
+    label: "Inspecciones",
+    icon: <ClipboardIcon />,
+    roles: ["ADMIN", "INSPECTOR_BPA", "INSPECTOR_ICA"],
   },
   {
     href: "/certificacion",
