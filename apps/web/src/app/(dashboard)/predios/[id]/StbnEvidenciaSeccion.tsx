@@ -49,6 +49,12 @@ function authHeaders(token: string): HeadersInit {
   return { Authorization: `Bearer ${token}` };
 }
 
+// Mismo set de mimetypes que apps/api/src/routes/stbn.ts (fotos, PDF, audio,
+// video) — evidencia STBN puede ser una entrevista a la comunidad o un
+// recorrido en video, a diferencia de la evidencia satelital EUDR.
+const ACCEPT_ADJUNTOS =
+  "image/jpeg,image/png,image/webp,application/pdf,audio/mpeg,audio/mp4,audio/wav,audio/webm,audio/ogg,video/mp4,video/webm,video/quicktime";
+
 export function StbnEvidenciaSeccion({
   predioId,
   evidenciasIniciales,
@@ -68,10 +74,23 @@ export function StbnEvidenciaSeccion({
   const [narrativa, setNarrativa] = useState("");
   const [periodoDesde, setPeriodoDesde] = useState("");
   const [periodoHasta, setPeriodoHasta] = useState("");
+  const [archivosNuevos, setArchivosNuevos] = useState<File[]>([]);
 
   const [subiendoAdjunto, setSubiendoAdjunto] = useState<string | null>(null);
 
   const evidenciasPilar = evidenciasIniciales.filter((e) => e.pilar === pilarActivo);
+
+  async function subirArchivo(evidenciaPilarId: string, file: File): Promise<void> {
+    const formData = new FormData();
+    formData.append("file", file);
+    const res = await fetch(`${getApiUrl()}/api/stbn/evidencias/${evidenciaPilarId}/binarios`, {
+      method: "POST",
+      headers: authHeaders(token),
+      body: formData,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message ?? `Error ${res.status}`);
+  }
 
   async function handleCrearEvidencia(e: React.FormEvent) {
     e.preventDefault();
@@ -91,10 +110,17 @@ export function StbnEvidenciaSeccion({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message ?? `Error ${res.status}`);
+
+      const evidenciaId = data.evidencia.id as string;
+      for (const file of archivosNuevos) {
+        await subirArchivo(evidenciaId, file);
+      }
+
       setTitulo("");
       setNarrativa("");
       setPeriodoDesde("");
       setPeriodoHasta("");
+      setArchivosNuevos([]);
       setMostrarForm(false);
       router.refresh();
     } catch (err) {
@@ -108,15 +134,7 @@ export function StbnEvidenciaSeccion({
     setError(null);
     setSubiendoAdjunto(evidenciaPilarId);
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch(`${getApiUrl()}/api/stbn/evidencias/${evidenciaPilarId}/binarios`, {
-        method: "POST",
-        headers: authHeaders(token),
-        body: formData,
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message ?? `Error ${res.status}`);
+      await subirArchivo(evidenciaPilarId, file);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -181,7 +199,7 @@ export function StbnEvidenciaSeccion({
                 {subiendoAdjunto === ev.id ? "Subiendo…" : "+ Adjuntar archivo"}
                 <input
                   type="file"
-                  accept="image/jpeg,image/png,image/webp,application/pdf"
+                  accept={ACCEPT_ADJUNTOS}
                   className="hidden"
                   disabled={subiendoAdjunto === ev.id}
                   onChange={(e) => {
@@ -217,8 +235,38 @@ export function StbnEvidenciaSeccion({
               <input type="date" className="input" value={periodoHasta} onChange={(e) => setPeriodoHasta(e.target.value)} />
             </div>
           </div>
+          <div>
+            <label className="label">Adjuntos (fotos, PDF, audio, video)</label>
+            <input
+              type="file"
+              accept={ACCEPT_ADJUNTOS}
+              multiple
+              onChange={(e) => {
+                const nuevos = Array.from(e.target.files ?? []);
+                setArchivosNuevos((prev) => [...prev, ...nuevos]);
+                e.target.value = "";
+              }}
+              className="text-xs"
+            />
+            {archivosNuevos.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {archivosNuevos.map((f, i) => (
+                  <div key={i} className="flex items-center justify-between text-xs bg-white rounded-lg px-2 py-1 border border-gray-200">
+                    <span className="truncate">{f.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => setArchivosNuevos((prev) => prev.filter((_, idx) => idx !== i))}
+                      className="text-red-400 hover:text-red-600 ml-2 flex-shrink-0"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="flex gap-2">
-            <button type="button" onClick={() => setMostrarForm(false)} className="btn-secondary text-sm py-1.5 flex-1">
+            <button type="button" onClick={() => { setMostrarForm(false); setArchivosNuevos([]); }} className="btn-secondary text-sm py-1.5 flex-1">
               Cancelar
             </button>
             <button type="submit" disabled={loading} className="btn-primary text-sm py-1.5 flex-1 disabled:opacity-50">

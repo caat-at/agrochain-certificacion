@@ -59,8 +59,16 @@ const AnclarSchema = z.object({
   loteId: z.string().uuid(),
 });
 
-const MIMETYPES_PERMITIDOS = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
-const MAX_SIZE_BYTES = 10 * 1024 * 1024;
+// Evidencia STBN incluye fotos de campo, documentos, y tambien audio/video
+// (entrevistas a comunidad, recorridos, registros de sensores) — a
+// diferencia de la evidencia satelital EUDR, que solo necesita imagen/PDF.
+const MIMETYPES_PERMITIDOS = new Set([
+  "image/jpeg", "image/png", "image/webp",
+  "application/pdf",
+  "audio/mpeg", "audio/mp4", "audio/wav", "audio/webm", "audio/ogg",
+  "video/mp4", "video/webm", "video/quicktime",
+]);
+const MAX_SIZE_BYTES = 50 * 1024 * 1024;
 
 function extOf(name: string): string {
   const i = name.lastIndexOf(".");
