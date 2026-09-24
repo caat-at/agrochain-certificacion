@@ -74,44 +74,48 @@ export async function lotesRoutes(app: FastifyInstance) {
   });
 
   // POST /api/lotes
-  app.post<{ Body: z.infer<typeof CrearLoteSchema> }>("/", async (request, reply) => {
-    const parsed = CrearLoteSchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.status(400).send({ success: false, error: parsed.error.flatten() });
+  app.post<{ Body: z.infer<typeof CrearLoteSchema> }>(
+    "/",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
+      const parsed = CrearLoteSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({ success: false, error: parsed.error.flatten() });
+      }
+
+      const data = parsed.data;
+
+      const anio = new Date().getFullYear();
+      const count = await countLotes();
+      const codigoLote = generarCodigoLote(data.codigoDepartamento, anio, count + 1);
+
+      const dataHash = generarHashLote({
+        codigoLote,
+        predioId: data.predioId,
+        agricultorId: data.agricultorId,
+        especie: data.especie,
+        variedad: data.variedad,
+        areaHa: data.areaHa,
+        fechaCreacion: new Date().toISOString(),
+      });
+
+      const lote = await createLote({
+        predioId: data.predioId,
+        agricultorId: data.agricultorId,
+        codigoLote,
+        especie: data.especie,
+        variedad: data.variedad,
+        areaHa: data.areaHa,
+        fechaSiembra: data.fechaSiembra ? new Date(data.fechaSiembra) : null,
+        fechaCosechaEst: data.fechaCosechaEst ? new Date(data.fechaCosechaEst) : null,
+        destinoProduccion: data.destinoProduccion,
+        dataHash,
+        syncEstado: "VERIFICADO",
+      });
+
+      return reply.status(201).send({ success: true, data: lote });
     }
-
-    const data = parsed.data;
-
-    const anio = new Date().getFullYear();
-    const count = await countLotes();
-    const codigoLote = generarCodigoLote(data.codigoDepartamento, anio, count + 1);
-
-    const dataHash = generarHashLote({
-      codigoLote,
-      predioId: data.predioId,
-      agricultorId: data.agricultorId,
-      especie: data.especie,
-      variedad: data.variedad,
-      areaHa: data.areaHa,
-      fechaCreacion: new Date().toISOString(),
-    });
-
-    const lote = await createLote({
-      predioId: data.predioId,
-      agricultorId: data.agricultorId,
-      codigoLote,
-      especie: data.especie,
-      variedad: data.variedad,
-      areaHa: data.areaHa,
-      fechaSiembra: data.fechaSiembra ? new Date(data.fechaSiembra) : null,
-      fechaCosechaEst: data.fechaCosechaEst ? new Date(data.fechaCosechaEst) : null,
-      destinoProduccion: data.destinoProduccion,
-      dataHash,
-      syncEstado: "VERIFICADO",
-    });
-
-    return reply.status(201).send({ success: true, data: lote });
-  });
+  );
 
   // GET /api/lotes/:loteId/plantas — listar plantas del lote
   app.get<{ Params: { id: string } }>("/:id/plantas", { preHandler: [(app as any).authenticate] }, async (request, reply) => {

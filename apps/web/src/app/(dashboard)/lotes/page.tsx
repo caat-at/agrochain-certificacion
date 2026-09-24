@@ -2,10 +2,13 @@ export const dynamic = "force-dynamic";
 import { apiFetch } from "@/lib/api";
 import { LoteResumen } from "@/types";
 import { estadoColor, estadoLabel, formatFecha } from "@/lib/utils";
+import { getSession } from "@/lib/auth";
 import Link from "next/link";
 import { DescargarPdfBtn } from "./[id]/DescargarPdfBtn";
+import { NuevoLoteForm } from "./NuevoLoteForm";
 
 export default async function LotesPage() {
+  const session = await getSession();
   let lotes: LoteResumen[] = [];
   let errorMsg: string | null = null;
 
@@ -16,6 +19,8 @@ export default async function LotesPage() {
     errorMsg = String(err);
   }
 
+  const puedeCrear = session?.rol === "ADMIN" || session?.rol === "AGRICULTOR";
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -23,6 +28,7 @@ export default async function LotesPage() {
           <h1 className="text-2xl font-bold text-gray-900">Lotes agrícolas</h1>
           <p className="text-sm text-gray-500 mt-1">{lotes.length} lote(s) registrados</p>
         </div>
+        {puedeCrear && <NuevoLoteForm />}
       </div>
 
       {errorMsg && (
@@ -38,7 +44,7 @@ export default async function LotesPage() {
               d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2m0 6v6m0 4h.01" />
           </svg>
           <p className="text-gray-500 font-medium">No hay lotes registrados</p>
-          <p className="text-sm text-gray-400 mt-1">Los lotes se crean desde la app móvil del agricultor</p>
+          <p className="text-sm text-gray-400 mt-1">Crea uno desde el botón "Nuevo lote" o desde la app móvil del agricultor</p>
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">

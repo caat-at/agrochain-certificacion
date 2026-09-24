@@ -244,6 +244,101 @@ export async function getPredioById(id: string): Promise<Predio | null> {
   return rows[0] ?? null;
 }
 
+// Mismas columnas sin alias de tabla, para usar en INSERT ... RETURNING
+// (patron identico a LOTE_COLUMNS_RETURNING).
+const PREDIO_COLUMNS_RETURNING = `
+  id,
+  agricultor_id              AS "agricultorId",
+  nombre_predio              AS "nombrePredio",
+  codigo_ica                 AS "codigoIca",
+  matricula_inmobiliaria     AS "matriculaInmobiliaria",
+  departamento, municipio, vereda, direccion, latitud, longitud,
+  altitud_msnm               AS "altitudMsnm",
+  area_total_ha              AS "areaTotalHa",
+  area_productiva_ha         AS "areaProductivaHa",
+  area_bosque_ha             AS "areaBosqueHa",
+  area_viveros_ha            AS "areaViverosHa",
+  fuente_agua                AS "fuenteAgua",
+  tipo_suelo                 AS "tipoSuelo",
+  pendiente_pct              AS "pendientePct",
+  uso_previo                 AS "usoPrevio",
+  certif_uso_suelo           AS "certifUsoSuelo",
+  tiene_bodega_agroquimicos  AS "tieneBodegaAgroquimicos",
+  tiene_agua_potable         AS "tieneAguaPotable",
+  tiene_sss_basicas          AS "tieneSSSBasicas",
+  tiene_zona_acopio          AS "tieneZonaAcopio",
+  activo,
+  created_at                 AS "createdAt",
+  updated_at                 AS "updatedAt"
+`;
+
+export interface CreatePredioBody {
+  agricultorId: string;
+  nombrePredio: string;
+  codigoIca?: string | null;
+  matriculaInmobiliaria?: string | null;
+  departamento: string;
+  municipio: string;
+  vereda?: string | null;
+  direccion?: string | null;
+  latitud: number;
+  longitud: number;
+  altitudMsnm?: number | null;
+  areaTotalHa: number;
+  areaProductivaHa?: number | null;
+  areaBosqueHa?: number | null;
+  areaViverosHa?: number | null;
+  fuenteAgua?: string | null;
+  tipoSuelo?: string | null;
+  pendientePct?: number | null;
+  usoPrevio?: string | null;
+  certifUsoSuelo?: string | null;
+  tieneBodegaAgroquimicos?: boolean;
+  tieneAguaPotable?: boolean;
+  tieneSSSBasicas?: boolean;
+  tieneZonaAcopio?: boolean;
+}
+
+export async function createPredio(body: CreatePredioBody): Promise<Predio> {
+  const { rows } = await pool.query<Predio>(
+    `INSERT INTO predios
+       (agricultor_id, nombre_predio, codigo_ica, matricula_inmobiliaria,
+        departamento, municipio, vereda, direccion, latitud, longitud, altitud_msnm,
+        area_total_ha, area_productiva_ha, area_bosque_ha, area_viveros_ha,
+        fuente_agua, tipo_suelo, pendiente_pct, uso_previo, certif_uso_suelo,
+        tiene_bodega_agroquimicos, tiene_agua_potable, tiene_sss_basicas, tiene_zona_acopio)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+     RETURNING ${PREDIO_COLUMNS_RETURNING}`,
+    [
+      body.agricultorId,
+      body.nombrePredio,
+      body.codigoIca ?? null,
+      body.matriculaInmobiliaria ?? null,
+      body.departamento,
+      body.municipio,
+      body.vereda ?? null,
+      body.direccion ?? null,
+      body.latitud,
+      body.longitud,
+      body.altitudMsnm ?? null,
+      body.areaTotalHa,
+      body.areaProductivaHa ?? null,
+      body.areaBosqueHa ?? null,
+      body.areaViverosHa ?? null,
+      body.fuenteAgua ?? null,
+      body.tipoSuelo ?? null,
+      body.pendientePct ?? null,
+      body.usoPrevio ?? null,
+      body.certifUsoSuelo ?? null,
+      body.tieneBodegaAgroquimicos ?? false,
+      body.tieneAguaPotable ?? false,
+      body.tieneSSSBasicas ?? false,
+      body.tieneZonaAcopio ?? false,
+    ]
+  );
+  return rows[0];
+}
+
 export async function listPredios(filtros: { agricultorId?: string; soloActivos?: boolean } = {}): Promise<
   Array<Predio & { totalLotes: number; agricultor: AgricultorContacto }>
 > {

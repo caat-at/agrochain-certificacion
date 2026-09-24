@@ -1,6 +1,8 @@
 export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
+import { getSession } from "@/lib/auth";
+import { NuevoPredioForm } from "./NuevoPredioForm";
 
 interface PredioItem {
   id: string;
@@ -14,6 +16,7 @@ interface PredioItem {
 }
 
 export default async function PrediosPage() {
+  const session = await getSession();
   let predios: PredioItem[] = [];
   let error: string | null = null;
 
@@ -24,11 +27,16 @@ export default async function PrediosPage() {
     error = String(err);
   }
 
+  const puedeCrear = session?.rol === "ADMIN" || session?.rol === "AGRICULTOR";
+
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Predios</h1>
-        <p className="text-sm text-gray-500 mt-1">{predios.length} predio(s) registrados</p>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Predios</h1>
+          <p className="text-sm text-gray-500 mt-1">{predios.length} predio(s) registrados</p>
+        </div>
+        {puedeCrear && session && <NuevoPredioForm rol={session.rol} userId={session.id} />}
       </div>
 
       {error && (
