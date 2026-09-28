@@ -7,8 +7,9 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
+    "types": ["node"],
     "outDir": "./dist"
   },
-  "include": ["hardhat.config.ts", "scripts/**/*", "test/**/*"],
-  "exclude": ["node_modules", "artifacts", "cache", "dist"]
+  "include": ["hardhat.config.ts", "scripts/**/*"],
+  "exclude": ["node_modules", "artifacts", "cache", "dist", "test"]
 }

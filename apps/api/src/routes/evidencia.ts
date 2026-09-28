@@ -1,7 +1,9 @@
 /**
  * Subida real de evidencia (fotos/audio/documentos) a S3 — funcionalidad
- * nueva, no migracion. Hoy el binario capturado en la app movil nunca sale
- * del dispositivo (solo se sincroniza su hash SHA256, ver apps/mobile).
+ * nueva, no migracion. El binario capturado en campo nunca sale del
+ * dispositivo: solo se sincroniza su hash SHA256. El cliente movil es un
+ * proyecto Flutter aparte; el contrato de hashing esta documentado en
+ * docs/HASH_CLIENT_CONTRACT.md.
  *
  * Patron replicado de SSE (routes/uploads.ts): @fastify/multipart en vez de
  * multer, mismo storage key jerarquico, misma regla de bloqueo sobre
