@@ -7,6 +7,7 @@ import {
   createEventoProduccion,
 } from "@agrochain/database";
 import type { SyncPayload, SyncResultado } from "@agrochain/shared";
+import { authenticate, requireRole, type JwtPayload } from "../middleware/auth.js";
 
 const SyncPayloadSchema = z.object({
   eventoId: z.string(),
@@ -19,7 +20,7 @@ const SyncPayloadSchema = z.object({
   latitud: z.number().nullable(),
   longitud: z.number().nullable(),
   altitudMsnm: z.number().nullable().optional(),
-  tecnicoId: z.string(),
+  tecnicoId: z.string().optional(),
   datosExtra: z.record(z.unknown()),
   fotoHash: z.string().nullable().optional(),
   audioHash: z.string().nullable().optional(),
@@ -35,7 +36,7 @@ export async function syncRoutes(app: FastifyInstance) {
    * Recibe batch de eventos desde la app movil.
    * Verifica integridad de hash y detecta duplicados.
    */
-  app.post<{ Body: { eventos: SyncPayload[] } }>("/eventos", async (request, reply) => {
+  app.post<{ Body: { eventos: SyncPayload[] } }>("/eventos", { preHandler: [authenticate, requireRole("TECNICO", "ADMIN", "INSPECTOR_ICA", "INSPECTOR_BPA")] }, async (request, reply) => {
     const parsed = SyncBatchSchema.safeParse(request.body);
 
     if (!parsed.success) {
@@ -48,9 +49,23 @@ export async function syncRoutes(app: FastifyInstance) {
       });
     }
 
+    // La identidad sale del JWT, nunca del body.
+    const auth = request.user as JwtPayload;
+
     const resultados: SyncResultado[] = [];
 
     for (const payload of parsed.data.eventos) {
+      // ── 0. EL tecnicoId DEL BODY DEBE SER EL USUARIO AUTENTICADO ───────────
+      if (payload.tecnicoId && payload.tecnicoId !== auth.sub) {
+        resultados.push({
+          eventoId: payload.eventoId,
+          aceptado: false,
+          motivo: "tecnicoId no coincide con el usuario autenticado",
+          purgar: false,
+        });
+        continue;
+      }
+
       // ── 1. VERIFICAR INTEGRIDAD DEL HASH ──────────────────────────────────
       const verificacion = verificarHashEvento(
         {
@@ -60,7 +75,7 @@ export async function syncRoutes(app: FastifyInstance) {
           fechaEvento: payload.fechaEvento,
           latitud: payload.latitud,
           longitud: payload.longitud,
-          tecnicoId: payload.tecnicoId,
+          tecnicoId: auth.sub,
           descripcion: payload.descripcion,
           datosExtra: payload.datosExtra,
           fotoHash: payload.fotoHash ?? undefined,
@@ -120,7 +135,7 @@ export async function syncRoutes(app: FastifyInstance) {
         const nuevo = await createEventoProduccion({
           loteId: payload.loteId,
           plantaId: payload.plantaId,
-          creadoPor: payload.tecnicoId,
+          creadoPor: auth.sub,
           tipoEvento: payload.tipoEvento,
           descripcion: payload.descripcion,
           fechaEvento: new Date(payload.fechaEvento),
