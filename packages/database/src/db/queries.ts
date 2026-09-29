@@ -1,5 +1,5 @@
 import pool from "./client.js";
-import type { Usuario, Organizacion, Predio, Lote, Planta, Inspeccion, Certificado, EventoProduccion, EvidenciaBinaria, AgricultorContacto } from "../types.js";
+import type { Usuario, Organizacion, Predio, Propietario, Parcela, Pais, Departamento, Municipio, Lote, Planta, Inspeccion, Certificado, EventoProduccion, EvidenciaBinaria, AgricultorContacto } from "../types.js";
 
 // =============================================================================
 // AGROCHAIN - Acceso a datos SQL directo (sin ORM)
@@ -189,6 +189,228 @@ export async function getOrganizacionById(id: string): Promise<Organizacion | nu
   return rows[0] ?? null;
 }
 
+// ── Propietarios (dueño legal del predio, sin cuenta de usuario) ───────────────
+
+const PROPIETARIO_COLUMNS = `
+  id,
+  nombres, apellidos,
+  tipo_documento    AS "tipoDocumento",
+  numero_documento  AS "numeroDocumento",
+  email, telefono, direccion, activo,
+  created_at        AS "createdAt",
+  updated_at        AS "updatedAt"
+`;
+
+export async function listPropietarios(): Promise<Propietario[]> {
+  const { rows } = await pool.query<Propietario>(
+    `SELECT ${PROPIETARIO_COLUMNS} FROM propietarios ORDER BY created_at DESC`
+  );
+  return rows;
+}
+
+export async function getPropietarioById(id: string): Promise<Propietario | null> {
+  const { rows } = await pool.query<Propietario>(
+    `SELECT ${PROPIETARIO_COLUMNS} FROM propietarios WHERE id = $1`,
+    [id]
+  );
+  return rows[0] ?? null;
+}
+
+export interface CreatePropietarioBody {
+  nombres: string;
+  apellidos: string;
+  tipoDocumento: string;
+  numeroDocumento: string;
+  email?: string | null;
+  telefono?: string | null;
+  direccion?: string | null;
+}
+
+export async function createPropietario(body: CreatePropietarioBody): Promise<Propietario> {
+  const { rows } = await pool.query<Propietario>(
+    `INSERT INTO propietarios
+       (nombres, apellidos, tipo_documento, numero_documento, email, telefono, direccion)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     RETURNING ${PROPIETARIO_COLUMNS}`,
+    [
+      body.nombres,
+      body.apellidos,
+      body.tipoDocumento,
+      body.numeroDocumento,
+      body.email ?? null,
+      body.telefono ?? null,
+      body.direccion ?? null,
+    ]
+  );
+  return rows[0];
+}
+
+export interface UpdatePropietarioFields {
+  nombres?: string;
+  apellidos?: string;
+  tipoDocumento?: string;
+  numeroDocumento?: string;
+  email?: string | null;
+  telefono?: string | null;
+  direccion?: string | null;
+  activo?: boolean;
+}
+
+export async function updatePropietario(
+  id: string,
+  fields: UpdatePropietarioFields
+): Promise<Propietario | null | "no-changes"> {
+  const sets: string[] = [];
+  const params: unknown[] = [];
+
+  if (fields.nombres !== undefined) { params.push(fields.nombres); sets.push(`nombres = $${params.length}`); }
+  if (fields.apellidos !== undefined) { params.push(fields.apellidos); sets.push(`apellidos = $${params.length}`); }
+  if (fields.tipoDocumento !== undefined) { params.push(fields.tipoDocumento); sets.push(`tipo_documento = $${params.length}`); }
+  if (fields.numeroDocumento !== undefined) { params.push(fields.numeroDocumento); sets.push(`numero_documento = $${params.length}`); }
+  if (fields.email !== undefined) { params.push(fields.email); sets.push(`email = $${params.length}`); }
+  if (fields.telefono !== undefined) { params.push(fields.telefono); sets.push(`telefono = $${params.length}`); }
+  if (fields.direccion !== undefined) { params.push(fields.direccion); sets.push(`direccion = $${params.length}`); }
+  if (fields.activo !== undefined) { params.push(fields.activo); sets.push(`activo = $${params.length}`); }
+
+  if (sets.length === 0) return "no-changes";
+
+  params.push(id);
+  const { rows } = await pool.query<Propietario>(
+    `UPDATE propietarios SET ${sets.join(", ")} WHERE id = $${params.length} RETURNING ${PROPIETARIO_COLUMNS}`,
+    params
+  );
+  return rows[0] ?? null;
+}
+
+// ── Catalogo de ubicacion (pais/departamento/municipio) ─────────────────────
+// Lecturas simples — catalogos pequeños, sin paginacion.
+
+export async function listPaises(): Promise<Pais[]> {
+  const { rows } = await pool.query<Pais>(`SELECT codigo, nombre FROM paises ORDER BY nombre`);
+  return rows;
+}
+
+export async function listDepartamentos(paisCod?: string): Promise<Departamento[]> {
+  const where = paisCod ? `WHERE pais_cod = $1` : "";
+  const params = paisCod ? [paisCod] : [];
+  const { rows } = await pool.query<Departamento>(
+    `SELECT codigo, nombre, pais_cod AS "paisCod" FROM departamentos ${where} ORDER BY nombre`,
+    params
+  );
+  return rows;
+}
+
+export async function listMunicipios(departamentoCod?: string): Promise<Municipio[]> {
+  const where = departamentoCod ? `WHERE departamento_cod = $1` : "";
+  const params = departamentoCod ? [departamentoCod] : [];
+  const { rows } = await pool.query<Municipio>(
+    `SELECT codigo, nombre, departamento_cod AS "departamentoCod" FROM municipios ${where} ORDER BY nombre`,
+    params
+  );
+  return rows;
+}
+
+// ── Parcelas (subdivision fisica permanente del predio) ─────────────────────
+
+const PARCELA_COLUMNS = `
+  id,
+  predio_id       AS "predioId",
+  codigo_parcela  AS "codigoParcela",
+  nombre,
+  area_ha         AS "areaHa",
+  latitud, longitud,
+  uso_actual      AS "usoActual",
+  activo,
+  created_at      AS "createdAt",
+  updated_at      AS "updatedAt"
+`;
+
+export async function listParcelas(predioId?: string): Promise<Parcela[]> {
+  const where = predioId ? `WHERE predio_id = $1` : "";
+  const params = predioId ? [predioId] : [];
+  const { rows } = await pool.query<Parcela>(
+    `SELECT ${PARCELA_COLUMNS} FROM parcelas ${where} ORDER BY created_at DESC`,
+    params
+  );
+  return rows;
+}
+
+export async function getParcelaById(id: string): Promise<Parcela | null> {
+  const { rows } = await pool.query<Parcela>(
+    `SELECT ${PARCELA_COLUMNS} FROM parcelas WHERE id = $1`,
+    [id]
+  );
+  return rows[0] ?? null;
+}
+
+export async function countParcelas(): Promise<number> {
+  const { rows } = await pool.query<{ count: string }>(`SELECT count(*)::text AS count FROM parcelas`);
+  return parseInt(rows[0].count, 10);
+}
+
+export interface CreateParcelaBody {
+  predioId: string;
+  codigoParcela: string;
+  nombre?: string | null;
+  areaHa: number;
+  latitud?: number | null;
+  longitud?: number | null;
+  usoActual?: string | null;
+}
+
+export async function createParcela(body: CreateParcelaBody): Promise<Parcela> {
+  const { rows } = await pool.query<Parcela>(
+    `INSERT INTO parcelas (predio_id, codigo_parcela, nombre, area_ha, latitud, longitud, uso_actual)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     RETURNING ${PARCELA_COLUMNS}`,
+    [
+      body.predioId,
+      body.codigoParcela,
+      body.nombre ?? null,
+      body.areaHa,
+      body.latitud ?? null,
+      body.longitud ?? null,
+      body.usoActual ?? null,
+    ]
+  );
+  return rows[0];
+}
+
+export interface UpdateParcelaFields {
+  predioId?: string;
+  nombre?: string | null;
+  areaHa?: number;
+  latitud?: number | null;
+  longitud?: number | null;
+  usoActual?: string | null;
+  activo?: boolean;
+}
+
+export async function updateParcela(
+  id: string,
+  fields: UpdateParcelaFields
+): Promise<Parcela | null | "no-changes"> {
+  const sets: string[] = [];
+  const params: unknown[] = [];
+
+  if (fields.predioId !== undefined) { params.push(fields.predioId); sets.push(`predio_id = $${params.length}`); }
+  if (fields.nombre !== undefined) { params.push(fields.nombre); sets.push(`nombre = $${params.length}`); }
+  if (fields.areaHa !== undefined) { params.push(fields.areaHa); sets.push(`area_ha = $${params.length}`); }
+  if (fields.latitud !== undefined) { params.push(fields.latitud); sets.push(`latitud = $${params.length}`); }
+  if (fields.longitud !== undefined) { params.push(fields.longitud); sets.push(`longitud = $${params.length}`); }
+  if (fields.usoActual !== undefined) { params.push(fields.usoActual); sets.push(`uso_actual = $${params.length}`); }
+  if (fields.activo !== undefined) { params.push(fields.activo); sets.push(`activo = $${params.length}`); }
+
+  if (sets.length === 0) return "no-changes";
+
+  params.push(id);
+  const { rows } = await pool.query<Parcela>(
+    `UPDATE parcelas SET ${sets.join(", ")} WHERE id = $${params.length} RETURNING ${PARCELA_COLUMNS}`,
+    params
+  );
+  return rows[0] ?? null;
+}
+
 // ── Predios ───────────────────────────────────────────────────────────────────
 
 // Columnas prefijadas con "predios." (en vez de solo cuando hace falta) para
@@ -198,10 +420,14 @@ export async function getOrganizacionById(id: string): Promise<Organizacion | nu
 const PREDIO_COLUMNS = `
   predios.id,
   predios.agricultor_id              AS "agricultorId",
+  predios.propietario_id             AS "propietarioId",
   predios.nombre_predio              AS "nombrePredio",
+  predios.codigo_predio              AS "codigoPredio",
   predios.codigo_ica                 AS "codigoIca",
   predios.matricula_inmobiliaria     AS "matriculaInmobiliaria",
   predios.departamento, predios.municipio, predios.vereda, predios.direccion,
+  predios.departamento_cod           AS "departamentoCod",
+  predios.municipio_cod              AS "municipioCod",
   predios.latitud, predios.longitud,
   predios.altitud_msnm               AS "altitudMsnm",
   predios.area_total_ha              AS "areaTotalHa",
@@ -222,10 +448,10 @@ const PREDIO_COLUMNS = `
   predios.updated_at                 AS "updatedAt"
 `;
 
-// Datos de contacto del propietario/agricultor del predio — el certificador
-// necesita saber a quien pertenece la finca, no solo su agricultor_id.
+// Datos de contacto del agricultor (usuario operador) del predio, si tiene —
+// ahora es opcional, ver propietario_id para el dueño legal sin cuenta.
 const AGRICULTOR_PREDIO_COLUMNS = `
-  json_build_object(
+  CASE WHEN ag.id IS NULL THEN NULL ELSE json_build_object(
     'id', ag.id,
     'nombres', ag.nombres,
     'apellidos', ag.apellidos,
@@ -233,7 +459,29 @@ const AGRICULTOR_PREDIO_COLUMNS = `
     'numeroDocumento', ag.numero_documento,
     'email', ag.email,
     'telefono', ag.telefono
-  ) AS "agricultor"
+  ) END AS "agricultor"
+`;
+
+// Nombres legibles de departamento/municipio resueltos contra el catalogo
+// real (departamentos/municipios) — predios.departamento/municipio (texto
+// libre viejo) puede contener el codigo crudo tras una edicion, no el nombre.
+const UBICACION_PREDIO_COLUMNS = `
+  depto.nombre AS "departamentoNombre",
+  muni.nombre  AS "municipioNombre"
+`;
+
+// Datos de contacto del propietario legal del predio (sin cuenta de usuario).
+const PROPIETARIO_PREDIO_COLUMNS = `
+  CASE WHEN prop.id IS NULL THEN NULL ELSE json_build_object(
+    'id', prop.id,
+    'nombres', prop.nombres,
+    'apellidos', prop.apellidos,
+    'tipoDocumento', prop.tipo_documento,
+    'numeroDocumento', prop.numero_documento,
+    'email', prop.email,
+    'telefono', prop.telefono,
+    'direccion', prop.direccion
+  ) END AS "propietario"
 `;
 
 export async function getPredioById(id: string): Promise<Predio | null> {
@@ -249,10 +497,15 @@ export async function getPredioById(id: string): Promise<Predio | null> {
 const PREDIO_COLUMNS_RETURNING = `
   id,
   agricultor_id              AS "agricultorId",
+  propietario_id             AS "propietarioId",
   nombre_predio              AS "nombrePredio",
+  codigo_predio              AS "codigoPredio",
   codigo_ica                 AS "codigoIca",
   matricula_inmobiliaria     AS "matriculaInmobiliaria",
-  departamento, municipio, vereda, direccion, latitud, longitud,
+  departamento, municipio, vereda, direccion,
+  departamento_cod           AS "departamentoCod",
+  municipio_cod              AS "municipioCod",
+  latitud, longitud,
   altitud_msnm               AS "altitudMsnm",
   area_total_ha              AS "areaTotalHa",
   area_productiva_ha         AS "areaProductivaHa",
@@ -273,12 +526,14 @@ const PREDIO_COLUMNS_RETURNING = `
 `;
 
 export interface CreatePredioBody {
-  agricultorId: string;
+  agricultorId?: string | null;
+  propietarioId: string;
   nombrePredio: string;
+  codigoPredio: string;
   codigoIca?: string | null;
   matriculaInmobiliaria?: string | null;
-  departamento: string;
-  municipio: string;
+  departamentoCod: string;
+  municipioCod: string;
   vereda?: string | null;
   direccion?: string | null;
   latitud: number;
@@ -299,23 +554,36 @@ export interface CreatePredioBody {
   tieneZonaAcopio?: boolean;
 }
 
+export async function countPredios(): Promise<number> {
+  const { rows } = await pool.query<{ count: string }>(`SELECT count(*)::text AS count FROM predios`);
+  return parseInt(rows[0].count, 10);
+}
+
+// Nota: departamento/municipio (texto libre, columnas viejas NOT NULL) se
+// siguen llenando con el mismo codigo que departamento_cod/municipio_cod
+// (las columnas reales con FK) — evita romper la restriccion NOT NULL del
+// schema base mientras esas columnas viejas no se eliminan (ver 08_parcelas_ubicacion.sql).
 export async function createPredio(body: CreatePredioBody): Promise<Predio> {
   const { rows } = await pool.query<Predio>(
     `INSERT INTO predios
-       (agricultor_id, nombre_predio, codigo_ica, matricula_inmobiliaria,
-        departamento, municipio, vereda, direccion, latitud, longitud, altitud_msnm,
+       (agricultor_id, propietario_id, nombre_predio, codigo_predio, codigo_ica, matricula_inmobiliaria,
+        departamento, municipio, departamento_cod, municipio_cod, vereda, direccion, latitud, longitud, altitud_msnm,
         area_total_ha, area_productiva_ha, area_bosque_ha, area_viveros_ha,
         fuente_agua, tipo_suelo, pendiente_pct, uso_previo, certif_uso_suelo,
         tiene_bodega_agroquimicos, tiene_agua_potable, tiene_sss_basicas, tiene_zona_acopio)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
      RETURNING ${PREDIO_COLUMNS_RETURNING}`,
     [
-      body.agricultorId,
+      body.agricultorId ?? null,
+      body.propietarioId,
       body.nombrePredio,
+      body.codigoPredio,
       body.codigoIca ?? null,
       body.matriculaInmobiliaria ?? null,
-      body.departamento,
-      body.municipio,
+      body.departamentoCod,
+      body.municipioCod,
+      body.departamentoCod,
+      body.municipioCod,
       body.vereda ?? null,
       body.direccion ?? null,
       body.latitud,
@@ -339,8 +607,87 @@ export async function createPredio(body: CreatePredioBody): Promise<Predio> {
   return rows[0];
 }
 
+export interface UpdatePredioFields {
+  propietarioId?: string;
+  agricultorId?: string | null;
+  nombrePredio?: string;
+  codigoIca?: string | null;
+  matriculaInmobiliaria?: string | null;
+  departamentoCod?: string;
+  municipioCod?: string;
+  vereda?: string | null;
+  direccion?: string | null;
+  latitud?: number;
+  longitud?: number;
+  altitudMsnm?: number | null;
+  areaTotalHa?: number;
+  areaProductivaHa?: number | null;
+  areaBosqueHa?: number | null;
+  areaViverosHa?: number | null;
+  fuenteAgua?: string | null;
+  tipoSuelo?: string | null;
+  pendientePct?: number | null;
+  usoPrevio?: string | null;
+  certifUsoSuelo?: string | null;
+  tieneBodegaAgroquimicos?: boolean;
+  tieneAguaPotable?: boolean;
+  tieneSSSBasicas?: boolean;
+  tieneZonaAcopio?: boolean;
+  activo?: boolean;
+}
+
+export async function updatePredio(
+  id: string,
+  fields: UpdatePredioFields
+): Promise<Predio | null | "no-changes"> {
+  const sets: string[] = [];
+  const params: unknown[] = [];
+
+  if (fields.propietarioId !== undefined) { params.push(fields.propietarioId); sets.push(`propietario_id = $${params.length}`); }
+  if (fields.agricultorId !== undefined) { params.push(fields.agricultorId); sets.push(`agricultor_id = $${params.length}`); }
+  if (fields.nombrePredio !== undefined) { params.push(fields.nombrePredio); sets.push(`nombre_predio = $${params.length}`); }
+  if (fields.codigoIca !== undefined) { params.push(fields.codigoIca); sets.push(`codigo_ica = $${params.length}`); }
+  if (fields.matriculaInmobiliaria !== undefined) { params.push(fields.matriculaInmobiliaria); sets.push(`matricula_inmobiliaria = $${params.length}`); }
+  if (fields.departamentoCod !== undefined) {
+    params.push(fields.departamentoCod); sets.push(`departamento_cod = $${params.length}`);
+    params.push(fields.departamentoCod); sets.push(`departamento = $${params.length}`);
+  }
+  if (fields.municipioCod !== undefined) {
+    params.push(fields.municipioCod); sets.push(`municipio_cod = $${params.length}`);
+    params.push(fields.municipioCod); sets.push(`municipio = $${params.length}`);
+  }
+  if (fields.vereda !== undefined) { params.push(fields.vereda); sets.push(`vereda = $${params.length}`); }
+  if (fields.direccion !== undefined) { params.push(fields.direccion); sets.push(`direccion = $${params.length}`); }
+  if (fields.latitud !== undefined) { params.push(fields.latitud); sets.push(`latitud = $${params.length}`); }
+  if (fields.longitud !== undefined) { params.push(fields.longitud); sets.push(`longitud = $${params.length}`); }
+  if (fields.altitudMsnm !== undefined) { params.push(fields.altitudMsnm); sets.push(`altitud_msnm = $${params.length}`); }
+  if (fields.areaTotalHa !== undefined) { params.push(fields.areaTotalHa); sets.push(`area_total_ha = $${params.length}`); }
+  if (fields.areaProductivaHa !== undefined) { params.push(fields.areaProductivaHa); sets.push(`area_productiva_ha = $${params.length}`); }
+  if (fields.areaBosqueHa !== undefined) { params.push(fields.areaBosqueHa); sets.push(`area_bosque_ha = $${params.length}`); }
+  if (fields.areaViverosHa !== undefined) { params.push(fields.areaViverosHa); sets.push(`area_viveros_ha = $${params.length}`); }
+  if (fields.fuenteAgua !== undefined) { params.push(fields.fuenteAgua); sets.push(`fuente_agua = $${params.length}`); }
+  if (fields.tipoSuelo !== undefined) { params.push(fields.tipoSuelo); sets.push(`tipo_suelo = $${params.length}`); }
+  if (fields.pendientePct !== undefined) { params.push(fields.pendientePct); sets.push(`pendiente_pct = $${params.length}`); }
+  if (fields.usoPrevio !== undefined) { params.push(fields.usoPrevio); sets.push(`uso_previo = $${params.length}`); }
+  if (fields.certifUsoSuelo !== undefined) { params.push(fields.certifUsoSuelo); sets.push(`certif_uso_suelo = $${params.length}`); }
+  if (fields.tieneBodegaAgroquimicos !== undefined) { params.push(fields.tieneBodegaAgroquimicos); sets.push(`tiene_bodega_agroquimicos = $${params.length}`); }
+  if (fields.tieneAguaPotable !== undefined) { params.push(fields.tieneAguaPotable); sets.push(`tiene_agua_potable = $${params.length}`); }
+  if (fields.tieneSSSBasicas !== undefined) { params.push(fields.tieneSSSBasicas); sets.push(`tiene_sss_basicas = $${params.length}`); }
+  if (fields.tieneZonaAcopio !== undefined) { params.push(fields.tieneZonaAcopio); sets.push(`tiene_zona_acopio = $${params.length}`); }
+  if (fields.activo !== undefined) { params.push(fields.activo); sets.push(`activo = $${params.length}`); }
+
+  if (sets.length === 0) return "no-changes";
+
+  params.push(id);
+  const { rows } = await pool.query<Predio>(
+    `UPDATE predios SET ${sets.join(", ")} WHERE id = $${params.length} RETURNING ${PREDIO_COLUMNS_RETURNING}`,
+    params
+  );
+  return rows[0] ?? null;
+}
+
 export async function listPredios(filtros: { agricultorId?: string; soloActivos?: boolean } = {}): Promise<
-  Array<Predio & { totalLotes: number; agricultor: AgricultorContacto }>
+  Array<Predio & { totalLotes: number; agricultor: AgricultorContacto | null; propietario: Propietario | null }>
 > {
   const conditions: string[] = [];
   const params: unknown[] = [];
@@ -353,13 +700,18 @@ export async function listPredios(filtros: { agricultorId?: string; soloActivos?
   }
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
-  const { rows } = await pool.query<Predio & { totalLotes: number; agricultor: AgricultorContacto }>(
+  const { rows } = await pool.query<Predio & { totalLotes: number; agricultor: AgricultorContacto | null; propietario: Propietario | null }>(
     `SELECT
        ${PREDIO_COLUMNS},
        ${AGRICULTOR_PREDIO_COLUMNS},
-       (SELECT count(*)::int FROM lotes l WHERE l.predio_id = predios.id) AS "totalLotes"
+       ${PROPIETARIO_PREDIO_COLUMNS},
+       ${UBICACION_PREDIO_COLUMNS},
+       (SELECT count(*)::int FROM lotes l JOIN parcelas par ON par.id = l.parcela_id WHERE par.predio_id = predios.id) AS "totalLotes"
      FROM predios
-     JOIN usuarios ag ON ag.id = predios.agricultor_id
+     LEFT JOIN usuarios ag ON ag.id = predios.agricultor_id
+     LEFT JOIN propietarios prop ON prop.id = predios.propietario_id
+     LEFT JOIN departamentos depto ON depto.codigo = predios.departamento_cod
+     LEFT JOIN municipios muni ON muni.codigo = predios.municipio_cod
      ${where}
      ORDER BY predios.created_at DESC`,
     params
@@ -370,7 +722,7 @@ export async function listPredios(filtros: { agricultorId?: string; soloActivos?
 export async function getPredioConLotes(
   id: string,
   filtros: { agricultorId?: string } = {}
-): Promise<(Predio & { agricultor: AgricultorContacto; lotes: unknown[] }) | null> {
+): Promise<(Predio & { agricultor: AgricultorContacto | null; propietario: Propietario | null; lotes: unknown[] }) | null> {
   const conditions: string[] = [`predios.id = $1`];
   const params: unknown[] = [id];
   if (filtros.agricultorId) {
@@ -378,10 +730,13 @@ export async function getPredioConLotes(
     conditions.push(`predios.agricultor_id = $${params.length}`);
   }
 
-  const { rows } = await pool.query<Predio & { agricultor: AgricultorContacto }>(
-    `SELECT ${PREDIO_COLUMNS}, ${AGRICULTOR_PREDIO_COLUMNS}
+  const { rows } = await pool.query<Predio & { agricultor: AgricultorContacto | null; propietario: Propietario | null }>(
+    `SELECT ${PREDIO_COLUMNS}, ${AGRICULTOR_PREDIO_COLUMNS}, ${PROPIETARIO_PREDIO_COLUMNS}, ${UBICACION_PREDIO_COLUMNS}
      FROM predios
-     JOIN usuarios ag ON ag.id = predios.agricultor_id
+     LEFT JOIN usuarios ag ON ag.id = predios.agricultor_id
+     LEFT JOIN propietarios prop ON prop.id = predios.propietario_id
+     LEFT JOIN departamentos depto ON depto.codigo = predios.departamento_cod
+     LEFT JOIN municipios muni ON muni.codigo = predios.municipio_cod
      WHERE ${conditions.join(" AND ")}`,
     params
   );
@@ -390,15 +745,17 @@ export async function getPredioConLotes(
 
   const { rows: lotes } = await pool.query(
     `SELECT
-       id, codigo_lote AS "codigoLote", especie, variedad, area_ha AS "areaHa",
-       fecha_siembra AS "fechaSiembra", destino_produccion AS "destinoProduccion",
-       sistema_riego AS "sistemaRiego", estado, data_hash AS "dataHash",
-       lote_id_onchain AS "loteIdOnchain",
-       created_at AS "createdAt",
+       lotes.id, lotes.codigo_lote AS "codigoLote", lotes.especie, lotes.variedad,
+       lotes.area_ha AS "areaHa",
+       lotes.fecha_siembra AS "fechaSiembra", lotes.destino_produccion AS "destinoProduccion",
+       lotes.sistema_riego AS "sistemaRiego", lotes.estado, lotes.data_hash AS "dataHash",
+       lotes.lote_id_onchain AS "loteIdOnchain",
+       lotes.created_at AS "createdAt",
        (SELECT count(*)::int FROM plantas pl WHERE pl.lote_id = lotes.id) AS "totalPlantas"
      FROM lotes
-     WHERE predio_id = $1 AND estado != 'REVOCADO'
-     ORDER BY created_at DESC`,
+     JOIN parcelas par ON par.id = lotes.parcela_id
+     WHERE par.predio_id = $1 AND lotes.estado != 'REVOCADO'
+     ORDER BY lotes.created_at DESC`,
     [id]
   );
 
@@ -407,9 +764,14 @@ export async function getPredioConLotes(
 
 // ── Lotes ────────────────────────────────────────────────────────────────────
 
+// predioId se resuelve siempre via la parcela (l.parcela_id -> parcelas.predio_id)
+// — lotes.predio_id fue eliminada por ser redundante e inconsistente cuando
+// una parcela cambia de predio (ver migracion 12_lotes_via_parcela.sql).
+// Requiere JOIN parcelas par ON par.id = l.parcela_id en el FROM.
 const LOTE_COLUMNS = `
   l.id,
-  l.predio_id            AS "predioId",
+  par.predio_id           AS "predioId",
+  l.parcela_id           AS "parcelaId",
   l.agricultor_id        AS "agricultorId",
   l.codigo_lote          AS "codigoLote",
   l.especie, l.variedad,
@@ -432,10 +794,12 @@ const LOTE_COLUMNS = `
   l.updated_at           AS "updatedAt"
 `;
 
-// Mismas columnas sin alias de tabla, para usar en INSERT/UPDATE ... RETURNING
+// Mismas columnas sin alias de tabla, para usar en INSERT/UPDATE ... RETURNING.
+// No incluye predioId (no existe columna propia, ver LOTE_COLUMNS) — createLote/
+// updateLote resuelven predioId aparte via getLoteById tras el INSERT/UPDATE.
 const LOTE_COLUMNS_RETURNING = `
   id,
-  predio_id            AS "predioId",
+  parcela_id           AS "parcelaId",
   agricultor_id        AS "agricultorId",
   codigo_lote          AS "codigoLote",
   especie, variedad,
@@ -460,7 +824,7 @@ const LOTE_COLUMNS_RETURNING = `
 
 export async function getLoteById(id: string): Promise<Lote | null> {
   const { rows } = await pool.query<Lote>(
-    `SELECT ${LOTE_COLUMNS} FROM lotes l WHERE l.id = $1`,
+    `SELECT ${LOTE_COLUMNS} FROM lotes l JOIN parcelas par ON par.id = l.parcela_id WHERE l.id = $1`,
     [id]
   );
   return rows[0] ?? null;
@@ -468,7 +832,7 @@ export async function getLoteById(id: string): Promise<Lote | null> {
 
 export async function getLoteByCodigo(codigoLote: string): Promise<Lote | null> {
   const { rows } = await pool.query<Lote>(
-    `SELECT ${LOTE_COLUMNS} FROM lotes l WHERE l.codigo_lote = $1`,
+    `SELECT ${LOTE_COLUMNS} FROM lotes l JOIN parcelas par ON par.id = l.parcela_id WHERE l.codigo_lote = $1`,
     [codigoLote]
   );
   return rows[0] ?? null;
@@ -488,6 +852,8 @@ export async function listLotesConResumen(filtros: {
   Array<
     Lote & {
       predioNombre: string | null;
+      parcelaNombre: string | null;
+      parcelaCodigo: string | null;
       inspeccion: { resultado: string; fechaRealizada: Date | null; inspectorNombres: string; inspectorApellidos: string } | null;
       campanas: Array<{ id: string; nombre: string; campanaHash: string; txHash: string | null; fechaCierre: Date | null }>;
     }
@@ -501,10 +867,12 @@ export async function listLotesConResumen(filtros: {
   }
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
-  const { rows: lotes } = await pool.query<Lote & { predioNombre: string | null }>(
-    `SELECT ${LOTE_COLUMNS}, p.nombre_predio AS "predioNombre"
+  const { rows: lotes } = await pool.query<Lote & { predioNombre: string | null; parcelaNombre: string | null; parcelaCodigo: string | null }>(
+    `SELECT ${LOTE_COLUMNS}, p.nombre_predio AS "predioNombre",
+       par.nombre AS "parcelaNombre", par.codigo_parcela AS "parcelaCodigo"
      FROM lotes l
-     LEFT JOIN predios p ON p.id = l.predio_id
+     JOIN parcelas par ON par.id = l.parcela_id
+     LEFT JOIN predios p ON p.id = par.predio_id
      ${where}
      ORDER BY l.created_at DESC`,
     params
@@ -572,7 +940,10 @@ export async function getLoteDetalle(id: string): Promise<
     })
   | null
 > {
-  const { rows } = await pool.query<Lote>(`SELECT ${LOTE_COLUMNS} FROM lotes l WHERE l.id = $1`, [id]);
+  const { rows } = await pool.query<Lote>(
+    `SELECT ${LOTE_COLUMNS} FROM lotes l JOIN parcelas par ON par.id = l.parcela_id WHERE l.id = $1`,
+    [id]
+  );
   const lote = rows[0];
   if (!lote) return null;
 
@@ -666,7 +1037,7 @@ export async function getLoteConDetalleByCodigo(codigoLote: string): Promise<
 }
 
 export interface CreateLoteBody {
-  predioId: string;
+  parcelaId: string;
   agricultorId: string;
   codigoLote: string;
   especie: string;
@@ -679,15 +1050,17 @@ export interface CreateLoteBody {
   syncEstado?: string;
 }
 
+// predioId no se inserta (no existe columna propia) — se resuelve via
+// getLoteById tras el INSERT, que hace JOIN con parcelas.
 export async function createLote(body: CreateLoteBody): Promise<Lote> {
-  const { rows } = await pool.query<Lote>(
+  const { rows } = await pool.query<{ id: string }>(
     `INSERT INTO lotes
-       (predio_id, agricultor_id, codigo_lote, especie, variedad, area_ha,
+       (parcela_id, agricultor_id, codigo_lote, especie, variedad, area_ha,
         fecha_siembra, fecha_cosecha_est, destino_produccion, data_hash, sync_estado)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-     RETURNING ${LOTE_COLUMNS_RETURNING}`,
+     RETURNING id`,
     [
-      body.predioId,
+      body.parcelaId,
       body.agricultorId,
       body.codigoLote,
       body.especie,
@@ -700,27 +1073,65 @@ export async function createLote(body: CreateLoteBody): Promise<Lote> {
       body.syncEstado ?? "PENDIENTE",
     ]
   );
-  return rows[0];
+  const lote = await getLoteById(rows[0].id);
+  if (!lote) throw new Error("Error interno: lote recien creado no encontrado");
+  return lote;
+}
+
+export interface UpdateLoteFields {
+  variedad?: string;
+  fechaCosechaEst?: Date | null;
+  fechaCosechaReal?: Date | null;
+  volumenCosechaKg?: number | null;
+  destinoProduccion?: string | null;
+  sistemaRiego?: string | null;
+  distanciaSiembraM?: number | null;
+  densidadPlantas?: number | null;
+  cultivoAnterior?: string | null;
+}
+
+export async function updateLote(
+  id: string,
+  fields: UpdateLoteFields
+): Promise<Lote | null | "no-changes"> {
+  const sets: string[] = [];
+  const params: unknown[] = [];
+
+  if (fields.variedad !== undefined) { params.push(fields.variedad); sets.push(`variedad = $${params.length}`); }
+  if (fields.fechaCosechaEst !== undefined) { params.push(fields.fechaCosechaEst); sets.push(`fecha_cosecha_est = $${params.length}`); }
+  if (fields.fechaCosechaReal !== undefined) { params.push(fields.fechaCosechaReal); sets.push(`fecha_cosecha_real = $${params.length}`); }
+  if (fields.volumenCosechaKg !== undefined) { params.push(fields.volumenCosechaKg); sets.push(`volumen_cosecha_kg = $${params.length}`); }
+  if (fields.destinoProduccion !== undefined) { params.push(fields.destinoProduccion); sets.push(`destino_produccion = $${params.length}`); }
+  if (fields.sistemaRiego !== undefined) { params.push(fields.sistemaRiego); sets.push(`sistema_riego = $${params.length}`); }
+  if (fields.distanciaSiembraM !== undefined) { params.push(fields.distanciaSiembraM); sets.push(`distancia_siembra_m = $${params.length}`); }
+  if (fields.densidadPlantas !== undefined) { params.push(fields.densidadPlantas); sets.push(`densidad_plantas = $${params.length}`); }
+  if (fields.cultivoAnterior !== undefined) { params.push(fields.cultivoAnterior); sets.push(`cultivo_anterior = $${params.length}`); }
+
+  if (sets.length === 0) return "no-changes";
+
+  params.push(id);
+  await pool.query(`UPDATE lotes SET ${sets.join(", ")} WHERE id = $${params.length}`, params);
+  return getLoteById(id);
 }
 
 export async function updateLoteBlockchainTx(
   id: string,
   fields: { txRegistro: string; syncEstado: string }
 ): Promise<Lote> {
-  const { rows } = await pool.query<Lote>(
-    `UPDATE lotes SET tx_registro = $1, sync_estado = $2 WHERE id = $3
-     RETURNING ${LOTE_COLUMNS_RETURNING}`,
+  await pool.query(
+    `UPDATE lotes SET tx_registro = $1, sync_estado = $2 WHERE id = $3`,
     [fields.txRegistro, fields.syncEstado, id]
   );
-  return rows[0];
+  const lote = await getLoteById(id);
+  if (!lote) throw new Error("Error interno: lote no encontrado tras actualizar tx blockchain");
+  return lote;
 }
 
 export async function updateLoteEstado(id: string, estado: string): Promise<Lote> {
-  const { rows } = await pool.query<Lote>(
-    `UPDATE lotes SET estado = $1 WHERE id = $2 RETURNING ${LOTE_COLUMNS_RETURNING}`,
-    [estado, id]
-  );
-  return rows[0];
+  await pool.query(`UPDATE lotes SET estado = $1 WHERE id = $2`, [estado, id]);
+  const lote = await getLoteById(id);
+  if (!lote) throw new Error("Error interno: lote no encontrado tras actualizar estado");
+  return lote;
 }
 
 // ── Plantas ──────────────────────────────────────────────────────────────────
@@ -919,13 +1330,32 @@ export async function listInspecciones(filtros: { inspectorId?: string } = {}): 
        u.nombres AS "inspectorNombres", u.apellidos AS "inspectorApellidos"
      FROM inspecciones i
      JOIN lotes l ON l.id = i.lote_id
-     LEFT JOIN predios p ON p.id = l.predio_id
+     JOIN parcelas par ON par.id = l.parcela_id
+     LEFT JOIN predios p ON p.id = par.predio_id
      JOIN usuarios u ON u.id = i.inspector_id
      ${where}
      ORDER BY i.created_at DESC`,
     params
   );
   return rows;
+}
+
+// Inspeccion mas reciente de un tipo especifico para un lote — usado para
+// exigir una inspeccion aprobada antes de emitir un certificado que la
+// requiera (ej. INVIMA_INOCUIDAD exige tipo_inspeccion='INVIMA' APROBADO,
+// mismo nivel de rigor que el bloqueo EUDR/STBN en certificados.ts).
+export async function getInspeccionVigentePorLoteYTipo(
+  loteId: string,
+  tipoInspeccion: string
+): Promise<Inspeccion | null> {
+  const { rows } = await pool.query<Inspeccion>(
+    `SELECT ${INSPECCION_COLUMNS} FROM inspecciones i
+     WHERE i.lote_id = $1 AND i.tipo_inspeccion = $2
+     ORDER BY i.created_at DESC
+     LIMIT 1`,
+    [loteId, tipoInspeccion]
+  );
+  return rows[0] ?? null;
 }
 
 export async function getInspeccionById(id: string): Promise<Inspeccion | null> {
@@ -1075,7 +1505,8 @@ export async function listCertificadosConLote(): Promise<unknown[]> {
            l.data_hash AS "dataHash", l.tx_registro AS "txRegistro",
            p.nombre_predio AS "predioNombrePredio"
          FROM lotes l
-         LEFT JOIN predios p ON p.id = l.predio_id
+         JOIN parcelas par ON par.id = l.parcela_id
+         LEFT JOIN predios p ON p.id = par.predio_id
          WHERE l.id = ANY($1)`,
         [loteIds]
       )

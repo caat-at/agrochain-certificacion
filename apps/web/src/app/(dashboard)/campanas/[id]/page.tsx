@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 import { notFound } from "next/navigation";
 import { apiFetch } from "@/lib/api";
+import { getSession } from "@/lib/auth";
 import { formatFecha, truncarHash } from "@/lib/utils";
 import Link from "next/link";
 import {
@@ -11,6 +12,7 @@ import {
 import { RegistroExpandible } from "./RegistroExpandible";
 import { VerificacionPanel } from "./VerificacionPanel";
 import { PanelBlockchain } from "./PanelBlockchain";
+import { MisPlantasTecnico } from "./MisPlantasTecnico";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -52,8 +54,21 @@ interface CampanaTecnico {
   tecnico: { id: string; nombres: string; apellidos: string };
 }
 
+interface PlantaCampana {
+  id: string;
+  codigoPlanta: string;
+  numeroPlanta: number | null;
+  registroId: string | null;
+  consecutivo: number | null;
+  estadoRegistro: string;
+  camposFaltantes: string[];
+  completo: boolean;
+  yaTecnicoAporto: boolean;
+}
+
 interface CampanaDetalle {
   id: string;
+  loteId: string;
   nombre: string;
   codigo: string | null;
   descripcion: string | null;
@@ -65,7 +80,7 @@ interface CampanaDetalle {
   motivoCierre: string | null;
   fechaApertura: string;
   fechaCierre: string | null;
-  lote: { id: string; codigoLote: string; especie: string; variedad: string | null; txRegistro: string | null };
+  lote: { codigoLote: string; especie: string; variedad: string | null; txRegistro: string | null };
   creador: { nombres: string; apellidos: string };
   cerrador: { nombres: string; apellidos: string } | null;
   tecnicos: CampanaTecnico[];
@@ -227,6 +242,7 @@ export default async function CampanaDetallePage({
   params: { id: string };
 }) {
   const { id } = params;
+  const session = await getSession();
   let campana: CampanaDetalle;
 
   try {
@@ -240,6 +256,27 @@ export default async function CampanaDetallePage({
   const campanaActiva    = campana.estado === "ACTIVA";
   const hayAdulterados   = campana.registros.some((r) => r.estado === "ADULTERADO");
   const tecnicosCompletos = campana.tecnicos.length === 4;
+
+  // Plantas del lote con estado de aporte — para que el TECNICO vea también
+  // las plantas sin RegistroPlanta creado aun (el registro solo se crea al
+  // llegar el primer aporte, igual que en el flujo movil).
+  let misPlantas: PlantaCampana[] = [];
+  let miPosicion: number | null = null;
+  let misCampos: string[] = [];
+  if (session?.rol === "TECNICO" && campanaAbierta) {
+    try {
+      const movil = await apiFetch<{
+        plantas: PlantaCampana[];
+        miPosicion: number | null;
+        misCampos: string[];
+      }>(`/api/campanas/movil/lote/${campana.loteId}`);
+      misPlantas  = movil.plantas;
+      miPosicion  = movil.miPosicion;
+      misCampos   = movil.misCampos;
+    } catch {
+      // Sin campaña movil disponible — no bloquea el resto de la pagina
+    }
+  }
 
   // Ordenar: adulterados primero, luego parciales, luego pendientes, luego completos, invalidados al final
   const ordenEstado: Record<string, number> = {
@@ -287,6 +324,19 @@ export default async function CampanaDetallePage({
       {campana.cierreConAdvertencia && campana.motivoCierre && (
         <div className="mb-5 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-700">
           <strong>Cerrada con advertencia:</strong> {campana.motivoCierre}
+        </div>
+      )}
+
+      {/* Mis plantas pendientes — solo TECNICO con posicion asignada, campaña abierta */}
+      {session?.rol === "TECNICO" && campanaAbierta && (
+        <div className="mb-6">
+          <MisPlantasTecnico
+            campanaId={campana.id}
+            tecnicoId={session.id}
+            miPosicion={miPosicion}
+            misCampos={misCampos}
+            plantas={misPlantas}
+          />
         </div>
       )}
 
@@ -389,7 +439,7 @@ export default async function CampanaDetallePage({
           {campana.estado === "CERRADA" && campana.campanaHash && (
             <PanelBlockchain
               campanaId={campana.id}
-              loteId={campana.lote.id}
+              loteId={campana.loteId}
               campanaHash={campana.campanaHash}
               txHash={campana.txHash}
               loteTxRegistro={campana.lote.txRegistro}

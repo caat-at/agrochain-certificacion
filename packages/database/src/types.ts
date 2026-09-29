@@ -90,14 +90,65 @@ export interface Organizacion {
   createdAt: Date;
 }
 
+export interface Propietario {
+  id: string;
+  nombres: string;
+  apellidos: string;
+  tipoDocumento: TipoDocumento;
+  numeroDocumento: string;
+  email: string | null;
+  telefono: string | null;
+  direccion: string | null;
+  activo: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface Pais {
+  codigo: string;
+  nombre: string;
+}
+
+export interface Departamento {
+  codigo: string;
+  nombre: string;
+  paisCod: string;
+}
+
+export interface Municipio {
+  codigo: string;
+  nombre: string;
+  departamentoCod: string;
+}
+
+export interface Parcela {
+  id: string;
+  predioId: string;
+  codigoParcela: string;
+  nombre: string | null;
+  areaHa: number;
+  latitud: number | null;
+  longitud: number | null;
+  usoActual: string | null;
+  activo: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface Predio {
   id: string;
-  agricultorId: string;
+  agricultorId: string | null;
+  propietarioId: string | null;
   nombrePredio: string;
+  codigoPredio: string;
   codigoIca: string | null;
   matriculaInmobiliaria: string | null;
   departamento: string;
   municipio: string;
+  departamentoCod: string | null;
+  municipioCod: string | null;
+  departamentoNombre?: string | null;
+  municipioNombre?: string | null;
   vereda: string | null;
   direccion: string | null;
   latitud: number;
@@ -136,6 +187,7 @@ export interface AgricultorContacto {
 export interface Lote {
   id: string;
   predioId: string;
+  parcelaId: string;
   agricultorId: string;
   codigoLote: string;
   especie: string;

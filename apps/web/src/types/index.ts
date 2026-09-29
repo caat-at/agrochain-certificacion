@@ -17,7 +17,8 @@ export type RolUsuario =
   | "INSPECTOR_BPA"
   | "CERTIFICADORA"
   | "INVIMA"
-  | "CONSUMIDOR";
+  | "CONSUMIDOR"
+  | "TECNICO";
 
 export type TipoCertificado =
   | "BPA_ICA"
@@ -39,6 +40,8 @@ export interface LoteResumen {
   id: string;
   codigoLote: string;
   predioNombre: string;
+  parcelaNombre: string | null;
+  parcelaCodigo: string | null;
   especie: string;
   variedad: string | null;
   estadoLote: EstadoLote;

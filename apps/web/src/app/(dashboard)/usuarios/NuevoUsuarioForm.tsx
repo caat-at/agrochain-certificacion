@@ -1,13 +1,6 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { getApiUrl } from "@/lib/client";
-
-function getToken(): string {
-  if (typeof document === "undefined") return "";
-  const match = document.cookie.match(/(?:^|;\s*)ac_token=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : "";
-}
 
 const PASSWORD_REGEX = /^.{8,}$/;
 const USERNAME_REGEX = /^[a-z0-9._-]{3,50}$/i;
@@ -64,12 +57,9 @@ export function NuevoUsuarioForm() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${getApiUrl()}/api/usuarios`, {
+      const res = await fetch(`/api/usuarios`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getToken()}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           nombres: nombres.trim(),
           apellidos: apellidos.trim(),

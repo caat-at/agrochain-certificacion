@@ -1,18 +1,20 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { getApiUrl } from "@/lib/client";
-
-function getToken(): string {
-  if (typeof document === "undefined") return "";
-  const match = document.cookie.match(/(?:^|;\s*)ac_token=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : "";
-}
 
 interface PredioOpcion {
   id: string;
   nombrePredio: string;
   agricultorId: string;
+  departamentoCod: string | null;
+  departamentoNombre: string | null;
+}
+
+interface ParcelaOpcion {
+  id: string;
+  codigoParcela: string;
+  nombre: string | null;
+  areaHa: number;
 }
 
 const DESTINOS = [
@@ -28,43 +30,58 @@ export function NuevoLoteForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [predios, setPredios] = useState<PredioOpcion[]>([]);
+  const [parcelas, setParcelas] = useState<ParcelaOpcion[]>([]);
+  const [cargandoParcelas, setCargandoParcelas] = useState(false);
 
   const [predioId, setPredioId] = useState("");
+  const [parcelaId, setParcelaId] = useState("");
   const [especie, setEspecie] = useState("");
   const [variedad, setVariedad] = useState("");
   const [areaHa, setAreaHa] = useState("");
   const [fechaSiembra, setFechaSiembra] = useState("");
   const [destinoProduccion, setDestinoProduccion] = useState("");
   const [codigoDepartamento, setCodigoDepartamento] = useState("");
+  const [departamentoNombre, setDepartamentoNombre] = useState("");
 
   const router = useRouter();
 
   useEffect(() => {
     if (!abierto) return;
-    fetch(`${getApiUrl()}/api/predios`, {
-      headers: { Authorization: `Bearer ${getToken()}` },
-    })
+    fetch(`/api/predios`)
       .then((r) => r.json())
       .then((data) => setPredios(data.predios ?? []))
       .catch(() => setPredios([]));
   }, [abierto]);
 
+  useEffect(() => {
+    if (!predioId) { setParcelas([]); return; }
+    setCargandoParcelas(true);
+    fetch(`/api/parcelas?predioId=${predioId}`)
+      .then((r) => r.json())
+      .then((data) => setParcelas(data.parcelas ?? []))
+      .catch(() => setParcelas([]))
+      .finally(() => setCargandoParcelas(false));
+  }, [predioId]);
+
   function handleClose() {
     setAbierto(false);
     setError(null);
     setPredioId("");
+    setParcelaId("");
     setEspecie("");
     setVariedad("");
     setAreaHa("");
     setFechaSiembra("");
     setDestinoProduccion("");
     setCodigoDepartamento("");
+    setDepartamentoNombre("");
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const predio = predios.find((p) => p.id === predioId);
     if (!predio) { setError("Selecciona el predio donde se ubica el lote."); return; }
+    if (!parcelaId) { setError("Selecciona la parcela donde se sembró este lote."); return; }
     if (!especie.trim()) { setError("La especie es obligatoria."); return; }
     if (!variedad.trim()) { setError("La variedad es obligatoria."); return; }
     const area = Number(areaHa);
@@ -77,14 +94,11 @@ export function NuevoLoteForm() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${getApiUrl()}/api/lotes`, {
+      const res = await fetch(`/api/lotes`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getToken()}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          predioId,
+          parcelaId,
           agricultorId: predio.agricultorId,
           especie: especie.trim(),
           variedad: variedad.trim(),
@@ -134,7 +148,18 @@ export function NuevoLoteForm() {
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4 overflow-y-auto">
           <div>
             <label className="label">Predio</label>
-            <select className="input" value={predioId} onChange={(e) => setPredioId(e.target.value)}>
+            <select
+              className="input"
+              value={predioId}
+              onChange={(e) => {
+                const id = e.target.value;
+                setPredioId(id);
+                setParcelaId("");
+                const predio = predios.find((p) => p.id === id);
+                setCodigoDepartamento(predio?.departamentoCod ?? "");
+                setDepartamentoNombre(predio?.departamentoNombre ?? "");
+              }}
+            >
               <option value="">— Seleccionar predio —</option>
               {predios.map((p) => (
                 <option key={p.id} value={p.id}>{p.nombrePredio}</option>
@@ -142,6 +167,31 @@ export function NuevoLoteForm() {
             </select>
             {predios.length === 0 && (
               <p className="text-xs text-gray-400 mt-1">No hay predios registrados — crea uno primero en /predios.</p>
+            )}
+          </div>
+
+          <div>
+            <label className="label">Parcela</label>
+            <select
+              className="input"
+              value={parcelaId}
+              onChange={(e) => setParcelaId(e.target.value)}
+              disabled={!predioId || cargandoParcelas}
+            >
+              <option value="">
+                {!predioId ? "— Elige un predio primero —" : cargandoParcelas ? "Cargando…" : "— Seleccionar parcela —"}
+              </option>
+              {parcelas.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.codigoParcela}{p.nombre ? ` — ${p.nombre}` : ""} ({p.areaHa} ha)
+                </option>
+              ))}
+            </select>
+            {predioId && !cargandoParcelas && parcelas.length === 0 && (
+              <p className="text-xs text-gray-400 mt-1">
+                Este predio no tiene parcelas — créala primero en{" "}
+                <a href="/parcelas" className="text-verde-600 hover:underline">Parcelas</a>.
+              </p>
             )}
           </div>
 
@@ -177,15 +227,14 @@ export function NuevoLoteForm() {
           </div>
 
           <div>
-            <label className="label">Código DANE del departamento</label>
+            <label className="label">Departamento (código DANE)</label>
             <input
-              className="input font-mono"
-              value={codigoDepartamento}
-              onChange={(e) => setCodigoDepartamento(e.target.value)}
-              placeholder="05"
-              maxLength={2}
+              className="input bg-gray-50 text-gray-400 font-mono"
+              value={codigoDepartamento ? `${codigoDepartamento} — ${departamentoNombre}` : ""}
+              placeholder="Se completa al elegir el predio"
+              disabled
             />
-            <p className="text-xs text-gray-400 mt-1">2 dígitos — se usa para generar el código del lote (ej. 05 = Antioquia).</p>
+            <p className="text-xs text-gray-400 mt-1">Se toma del predio seleccionado y se usa para generar el código del lote.</p>
           </div>
 
           {error && (

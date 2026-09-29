@@ -38,6 +38,7 @@ interface Props {
   loteCode:      string;
   token:         string;
   inspeccionId?: string;
+  tipoInspeccion?: string;
 }
 
 const TIPO_EVENTO_LABEL: Record<string, string> = {
@@ -51,7 +52,7 @@ const TIPO_EVENTO_LABEL: Record<string, string> = {
   MONITOREO:        "Monitoreo",
 };
 
-export default function CompletarInspeccionBtn({ loteId, loteCode, token, inspeccionId }: Props) {
+export default function CompletarInspeccionBtn({ loteId, loteCode, token, inspeccionId, tipoInspeccion = "BPA_CERTIFICACION" }: Props) {
   const router = useRouter();
   const [open, setOpen]         = useState(false);
   const [loading, setLoading]   = useState(false);
@@ -110,7 +111,7 @@ export default function CompletarInspeccionBtn({ loteId, loteCode, token, inspec
             loteId,
             inspectorId:    (JSON.parse(atob(token.split(".")[1]))).sub,
             organizacionId: "org_certificadora_demo",
-            tipoInspeccion: "BPA_CERTIFICACION",
+            tipoInspeccion,
             fechaSolicitud: new Date().toISOString(),
           }),
         });
@@ -164,7 +165,9 @@ export default function CompletarInspeccionBtn({ loteId, loteCode, token, inspec
             {/* Header */}
             <div className="p-6 border-b border-gray-100 flex items-start justify-between">
               <div>
-                <h2 className="text-lg font-bold text-gray-900">Inspección BPA — NTC 5400</h2>
+                <h2 className="text-lg font-bold text-gray-900">
+                  {tipoInspeccion === "INVIMA" ? "Inspección INVIMA — Inocuidad alimentaria" : "Inspección BPA — NTC 5400"}
+                </h2>
                 <p className="text-sm text-gray-500 mt-0.5">
                   Lote: <span className="font-mono font-semibold text-gray-800">{loteCode}</span>
                 </p>
@@ -341,10 +344,12 @@ export default function CompletarInspeccionBtn({ loteId, loteCode, token, inspec
                     </select>
                   </div>
 
-                  {/* Puntaje BPA */}
+                  {/* Puntaje */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Puntaje BPA (% cumplimiento NTC 5400)
+                      {tipoInspeccion === "INVIMA"
+                        ? "Puntaje (% cumplimiento inocuidad)"
+                        : "Puntaje BPA (% cumplimiento NTC 5400)"}
                     </label>
                     <input
                       type="number" min="0" max="100" step="0.1"

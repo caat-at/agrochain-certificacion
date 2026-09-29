@@ -34,7 +34,7 @@ services:
       HOST: 0.0.0.0
       NODE_ENV: production
       JWT_SECRET: ${JWT_SECRET}
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3300}
       POLYGON_RPC_URL: ${POLYGON_RPC_URL}
       POLYGON_CHAIN_ID: ${POLYGON_CHAIN_ID}
       BACKEND_WALLET_PRIVATE_KEY: ${BACKEND_WALLET_PRIVATE_KEY}

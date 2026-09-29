@@ -1,19 +1,12 @@
 "use client";
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { getApiUrl } from "@/lib/client";
 
 interface Lote {
   id: string;
   codigoLote: string;
   especie: string;
   variedad: string | null;
-}
-
-function getToken(): string {
-  if (typeof document === "undefined") return "";
-  const match = document.cookie.match(/(?:^|;\s*)ac_token=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : "";
 }
 
 // Campos predefinidos comunes para sugerencias rápidas
@@ -59,12 +52,9 @@ export function NuevaCampanaForm({ lotes }: { lotes: Lote[] }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${getApiUrl()}/api/campanas`, {
+      const res = await fetch(`/api/campanas`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getToken()}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           loteId,
           nombre: nombre.trim(),

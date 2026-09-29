@@ -120,6 +120,34 @@ export function generarCodigoLote(
   return `COL-${codigoDepartamento}-${anio}-${seq}`;
 }
 
+/**
+ * Genera codigo unico de parcela (subdivision fisica permanente del predio):
+ * PAR-{MUNICIPIO_COD}-{SEQ_5}
+ * Ej: PAR-05615-00001
+ */
+export function generarCodigoParcela(
+  codigoMunicipio: string,
+  secuencia: number
+): string {
+  const seq = String(secuencia).padStart(5, "0");
+  return `PAR-${codigoMunicipio}-${seq}`;
+}
+
+/**
+ * Genera codigo unico de predio (identificador legible, no reemplaza a
+ * codigo_ica si el ICA ya asigno uno real — se usa como valor por defecto
+ * autogenerado cuando el usuario no tiene un codigo ICA oficial todavia):
+ * PRD-{MUNICIPIO_COD}-{SEQ_5}
+ * Ej: PRD-05615-00001
+ */
+export function generarCodigoPredio(
+  codigoMunicipio: string,
+  secuencia: number
+): string {
+  const seq = String(secuencia).padStart(5, "0");
+  return `PRD-${codigoMunicipio}-${seq}`;
+}
+
 // =============================================================================
 // INTEGRIDAD DE CAMPAÑAS — Nivel 1: firma de aporte, Nivel 2: registro planta,
 // Nivel 3: hash de campaña

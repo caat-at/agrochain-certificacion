@@ -1,18 +1,19 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { getApiUrl } from "@/lib/client";
-
-function getToken(): string {
-  if (typeof document === "undefined") return "";
-  const match = document.cookie.match(/(?:^|;\s*)ac_token=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : "";
-}
+import { fetchPaises, fetchDepartamentos, fetchMunicipios, type PaisOpcion, type DepartamentoOpcion, type MunicipioOpcion } from "@/lib/ubicacion";
 
 interface AgricultorOpcion {
   id: string;
   nombres: string;
   apellidos: string;
+}
+
+interface PropietarioOpcion {
+  id: string;
+  nombres: string;
+  apellidos: string;
+  numeroDocumento: string;
 }
 
 const FUENTES_AGUA = [
@@ -29,11 +30,20 @@ export function NuevoPredioForm({ rol, userId }: { rol: string; userId: string }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [agricultores, setAgricultores] = useState<AgricultorOpcion[]>([]);
+  const [propietarios, setPropietarios] = useState<PropietarioOpcion[]>([]);
+  const [paises, setPaises] = useState<PaisOpcion[]>([]);
+  const [departamentos, setDepartamentos] = useState<DepartamentoOpcion[]>([]);
+  const [municipios, setMunicipios] = useState<MunicipioOpcion[]>([]);
+  const [cargandoDepartamentos, setCargandoDepartamentos] = useState(false);
+  const [cargandoMunicipios, setCargandoMunicipios] = useState(false);
 
+  const [propietarioId, setPropietarioId] = useState("");
   const [agricultorId, setAgricultorId] = useState(rol === "AGRICULTOR" ? userId : "");
   const [nombrePredio, setNombrePredio] = useState("");
-  const [departamento, setDepartamento] = useState("");
-  const [municipio, setMunicipio] = useState("");
+  const [codigoIca, setCodigoIca] = useState("");
+  const [paisCod, setPaisCod] = useState("COL");
+  const [departamentoCod, setDepartamentoCod] = useState("");
+  const [municipioCod, setMunicipioCod] = useState("");
   const [vereda, setVereda] = useState("");
   const [latitud, setLatitud] = useState("");
   const [longitud, setLongitud] = useState("");
@@ -46,21 +56,48 @@ export function NuevoPredioForm({ rol, userId }: { rol: string; userId: string }
 
   useEffect(() => {
     if (rol !== "ADMIN" || !abierto) return;
-    fetch(`${getApiUrl()}/api/usuarios?rol=AGRICULTOR`, {
-      headers: { Authorization: `Bearer ${getToken()}` },
-    })
+    fetch(`/api/usuarios?rol=AGRICULTOR`)
       .then((r) => r.json())
       .then((data) => setAgricultores(data.usuarios ?? []))
       .catch(() => setAgricultores([]));
+
+    fetch(`/api/propietarios`)
+      .then((r) => r.json())
+      .then((data) => setPropietarios(data.propietarios ?? []))
+      .catch(() => setPropietarios([]));
   }, [rol, abierto]);
+
+  useEffect(() => {
+    if (!abierto || paises.length > 0) return;
+    fetchPaises().then(setPaises);
+  }, [abierto, paises.length]);
+
+  useEffect(() => {
+    if (!paisCod) { setDepartamentos([]); return; }
+    setCargandoDepartamentos(true);
+    fetchDepartamentos(paisCod)
+      .then(setDepartamentos)
+      .finally(() => setCargandoDepartamentos(false));
+  }, [paisCod]);
+
+  useEffect(() => {
+    if (!departamentoCod) { setMunicipios([]); return; }
+    setCargandoMunicipios(true);
+    fetchMunicipios(departamentoCod)
+      .then(setMunicipios)
+      .finally(() => setCargandoMunicipios(false));
+  }, [departamentoCod]);
 
   function handleClose() {
     setAbierto(false);
     setError(null);
+    setPropietarioId("");
     setAgricultorId(rol === "AGRICULTOR" ? userId : "");
     setNombrePredio("");
-    setDepartamento("");
-    setMunicipio("");
+    setCodigoIca("");
+    setPaisCod("COL");
+    setDepartamentoCod("");
+    setMunicipioCod("");
     setVereda("");
     setLatitud("");
     setLongitud("");
@@ -72,9 +109,9 @@ export function NuevoPredioForm({ rol, userId }: { rol: string; userId: string }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!agricultorId) { setError("Selecciona el propietario del predio."); return; }
+    if (!propietarioId) { setError("Selecciona el propietario del predio."); return; }
     if (!nombrePredio.trim()) { setError("El nombre del predio es obligatorio."); return; }
-    if (!departamento.trim() || !municipio.trim()) { setError("Departamento y municipio son obligatorios."); return; }
+    if (!departamentoCod || !municipioCod) { setError("Departamento y municipio son obligatorios."); return; }
     const lat = Number(latitud);
     const lon = Number(longitud);
     const area = Number(areaTotalHa);
@@ -85,17 +122,16 @@ export function NuevoPredioForm({ rol, userId }: { rol: string; userId: string }
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${getApiUrl()}/api/predios`, {
+      const res = await fetch(`/api/predios`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getToken()}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          agricultorId,
+          propietarioId,
+          agricultorId: agricultorId || undefined,
           nombrePredio: nombrePredio.trim(),
-          departamento: departamento.trim(),
-          municipio: municipio.trim(),
+          codigoIca: codigoIca.trim() || undefined,
+          departamentoCod,
+          municipioCod,
           vereda: vereda.trim() || undefined,
           latitud: lat,
           longitud: lon,
@@ -143,15 +179,32 @@ export function NuevoPredioForm({ rol, userId }: { rol: string; userId: string }
         </div>
 
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4 overflow-y-auto">
+          <div>
+            <label className="label">Propietario</label>
+            <select className="input" value={propietarioId} onChange={(e) => setPropietarioId(e.target.value)}>
+              <option value="">— Seleccionar propietario —</option>
+              {propietarios.map((p) => (
+                <option key={p.id} value={p.id}>{p.nombres} {p.apellidos} — {p.numeroDocumento}</option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-400 mt-1">
+              Dueño legal del predio. Si no existe, créalo primero en{" "}
+              <a href="/propietarios" className="text-verde-600 hover:underline">Propietarios</a>.
+            </p>
+          </div>
+
           {rol === "ADMIN" && (
             <div>
-              <label className="label">Propietario</label>
+              <label className="label">Usuario operador (opcional)</label>
               <select className="input" value={agricultorId} onChange={(e) => setAgricultorId(e.target.value)}>
-                <option value="">— Seleccionar agricultor —</option>
+                <option value="">— Sin usuario asignado —</option>
                 {agricultores.map((a) => (
                   <option key={a.id} value={a.id}>{a.nombres} {a.apellidos}</option>
                 ))}
               </select>
+              <p className="text-xs text-gray-400 mt-1">
+                Usuario AGRICULTOR que podrá loguearse y ver este predio en el sistema (opcional).
+              </p>
             </div>
           )}
 
@@ -160,14 +213,73 @@ export function NuevoPredioForm({ rol, userId }: { rol: string; userId: string }
             <input className="input" value={nombrePredio} onChange={(e) => setNombrePredio(e.target.value)} placeholder="Finca El Paraíso" />
           </div>
 
+          <div>
+            <label className="label">Código de predio</label>
+            <input className="input bg-gray-50 text-gray-400 font-mono" value="Se asigna automáticamente al guardar" disabled />
+          </div>
+
+          <div>
+            <label className="label">Código ICA (opcional)</label>
+            <input
+              className="input font-mono"
+              value={codigoIca}
+              onChange={(e) => setCodigoIca(e.target.value)}
+              placeholder="Ej: RTS0012345 — número oficial asignado por el ICA, si ya lo tienes"
+            />
+            <p className="text-xs text-gray-400 mt-1">
+              Independiente del código de predio. Llénalo solo si tu finca ya tiene un registro ICA real.
+            </p>
+          </div>
+
+          <div>
+            <label className="label">País</label>
+            <select
+              className="input"
+              value={paisCod}
+              onChange={(e) => { setPaisCod(e.target.value); setDepartamentoCod(""); setMunicipioCod(""); }}
+            >
+              <option value="">— Seleccionar —</option>
+              {paises.map((p) => (
+                <option key={p.codigo} value={p.codigo}>{p.nombre}</option>
+              ))}
+            </select>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">Departamento</label>
-              <input className="input" value={departamento} onChange={(e) => setDepartamento(e.target.value)} placeholder="Antioquia" />
+              <select
+                className="input"
+                value={departamentoCod}
+                onChange={(e) => { setDepartamentoCod(e.target.value); setMunicipioCod(""); }}
+                disabled={!paisCod || cargandoDepartamentos}
+              >
+                <option value="">
+                  {!paisCod ? "— Elige un país primero —" : cargandoDepartamentos ? "Cargando…" : "— Seleccionar —"}
+                </option>
+                {departamentos.map((d) => (
+                  <option key={d.codigo} value={d.codigo}>{d.nombre}</option>
+                ))}
+              </select>
+              {paisCod && !cargandoDepartamentos && departamentos.length === 0 && (
+                <p className="text-xs text-gray-400 mt-1">Sin departamentos registrados para este país.</p>
+              )}
             </div>
             <div>
               <label className="label">Municipio</label>
-              <input className="input" value={municipio} onChange={(e) => setMunicipio(e.target.value)} placeholder="Sonsón" />
+              <select
+                className="input"
+                value={municipioCod}
+                onChange={(e) => setMunicipioCod(e.target.value)}
+                disabled={!departamentoCod || cargandoMunicipios}
+              >
+                <option value="">
+                  {!departamentoCod ? "— Elige un departamento primero —" : cargandoMunicipios ? "Cargando…" : "— Seleccionar —"}
+                </option>
+                {municipios.map((m) => (
+                  <option key={m.codigo} value={m.codigo}>{m.nombre}</option>
+                ))}
+              </select>
             </div>
           </div>
 

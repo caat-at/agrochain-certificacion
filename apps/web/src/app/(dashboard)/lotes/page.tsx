@@ -53,6 +53,7 @@ export default async function LotesPage() {
               <tr className="border-b border-gray-100 bg-gray-50">
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Código</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Predio</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-500">Parcela</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Especie / Variedad</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Estado</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Integridad</th>
@@ -69,6 +70,9 @@ export default async function LotesPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-gray-600">{lote.predioNombre}</td>
+                  <td className="px-4 py-3 text-gray-600">
+                    {lote.parcelaNombre ?? lote.parcelaCodigo ?? "—"}
+                  </td>
                   <td className="px-4 py-3">
                     <span className="text-gray-800">{lote.especie}</span>
                     {lote.variedad && (

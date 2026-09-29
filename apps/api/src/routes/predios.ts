@@ -6,15 +6,16 @@
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { listPredios, getPredioConLotes, createPredio, getUsuarioById } from "@agrochain/database";
+import { listPredios, getPredioConLotes, getPredioById, createPredio, updatePredio, countPredios, generarCodigoPredio, getUsuarioById, getPropietarioById } from "@agrochain/database";
 
 const CrearPredioSchema = z.object({
-  agricultorId: z.string().uuid(),
+  propietarioId: z.string().uuid(),
+  agricultorId: z.string().uuid().optional(),
   nombrePredio: z.string().min(1).max(200),
   codigoIca: z.string().max(50).optional(),
   matriculaInmobiliaria: z.string().max(100).optional(),
-  departamento: z.string().min(1).max(100),
-  municipio: z.string().min(1).max(100),
+  departamentoCod: z.string().min(1).max(5),
+  municipioCod: z.string().min(1).max(10),
   vereda: z.string().max(150).optional(),
   direccion: z.string().max(255).optional(),
   latitud: z.number().min(-90).max(90),
@@ -33,6 +34,35 @@ const CrearPredioSchema = z.object({
   tieneAguaPotable: z.boolean().optional(),
   tieneSSSBasicas: z.boolean().optional(),
   tieneZonaAcopio: z.boolean().optional(),
+});
+
+const EditarPredioSchema = z.object({
+  propietarioId: z.string().uuid().optional(),
+  agricultorId: z.string().uuid().nullable().optional(),
+  nombrePredio: z.string().min(1).max(200).optional(),
+  codigoIca: z.string().max(50).nullable().optional(),
+  matriculaInmobiliaria: z.string().max(100).nullable().optional(),
+  departamentoCod: z.string().min(1).max(5).optional(),
+  municipioCod: z.string().min(1).max(10).optional(),
+  vereda: z.string().max(150).nullable().optional(),
+  direccion: z.string().max(255).nullable().optional(),
+  latitud: z.number().min(-90).max(90).optional(),
+  longitud: z.number().min(-180).max(180).optional(),
+  altitudMsnm: z.number().nullable().optional(),
+  areaTotalHa: z.number().positive().optional(),
+  areaProductivaHa: z.number().positive().nullable().optional(),
+  areaBosqueHa: z.number().positive().nullable().optional(),
+  areaViverosHa: z.number().positive().nullable().optional(),
+  fuenteAgua: z.enum(["ACUEDUCTO", "RIO", "POZO", "LLUVIA", "MIXTA"]).nullable().optional(),
+  tipoSuelo: z.string().max(50).nullable().optional(),
+  pendientePct: z.number().min(0).max(100).nullable().optional(),
+  usoPrevio: z.string().max(150).nullable().optional(),
+  certifUsoSuelo: z.string().max(100).nullable().optional(),
+  tieneBodegaAgroquimicos: z.boolean().optional(),
+  tieneAguaPotable: z.boolean().optional(),
+  tieneSSSBasicas: z.boolean().optional(),
+  tieneZonaAcopio: z.boolean().optional(),
+  activo: z.boolean().optional(),
 });
 
 export async function prediosRoutes(app: FastifyInstance) {
@@ -79,16 +109,73 @@ export async function prediosRoutes(app: FastifyInstance) {
       return reply.status(400).send({ message: "Datos inválidos", errors: parsed.error.flatten().fieldErrors });
     }
 
-    if (payload.rol === "AGRICULTOR" && parsed.data.agricultorId !== payload.sub) {
+    if (payload.rol === "AGRICULTOR" && parsed.data.agricultorId && parsed.data.agricultorId !== payload.sub) {
       return reply.status(403).send({ message: "Un agricultor solo puede crear predios a su propio nombre" });
     }
 
-    const agricultor = await getUsuarioById(parsed.data.agricultorId);
-    if (!agricultor || agricultor.rol !== "AGRICULTOR") {
-      return reply.status(400).send({ message: "agricultorId debe corresponder a un usuario con rol AGRICULTOR" });
+    const propietario = await getPropietarioById(parsed.data.propietarioId);
+    if (!propietario) {
+      return reply.status(400).send({ message: "propietarioId no corresponde a ningún propietario registrado" });
     }
 
-    const predio = await createPredio(parsed.data);
+    if (parsed.data.agricultorId) {
+      const agricultor = await getUsuarioById(parsed.data.agricultorId);
+      if (!agricultor || agricultor.rol !== "AGRICULTOR") {
+        return reply.status(400).send({ message: "agricultorId debe corresponder a un usuario con rol AGRICULTOR" });
+      }
+    }
+
+    // codigoPredio: identificador interno, SIEMPRE se autogenera al crear el
+    // predio (PRD-{municipio}-{seq}, mismo estilo que codigo_lote/codigo_parcela),
+    // sea que el usuario llene codigoIca o no — son dos campos independientes.
+    // codigoIca es el numero oficial real del ICA, opcional, sin relacion con
+    // el autogenerado.
+    const count = await countPredios();
+    const codigoPredio = generarCodigoPredio(parsed.data.municipioCod, count + 1);
+
+    const predio = await createPredio({ ...parsed.data, codigoPredio });
     return reply.status(201).send({ success: true, data: predio });
   });
+
+  // PATCH /api/predios/:id — editar (solo ADMIN)
+  app.patch<{ Params: { id: string } }>(
+    "/:id",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
+      const payload = (request as any).user as { rol: string };
+      if (payload.rol !== "ADMIN") {
+        return reply.status(403).send({ message: "Solo administradores" });
+      }
+
+      const parsed = EditarPredioSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({ message: "Datos inválidos", errors: parsed.error.flatten().fieldErrors });
+      }
+
+      const existente = await getPredioById(request.params.id);
+      if (!existente) {
+        return reply.status(404).send({ message: "Predio no encontrado" });
+      }
+
+      if (parsed.data.propietarioId) {
+        const propietario = await getPropietarioById(parsed.data.propietarioId);
+        if (!propietario) {
+          return reply.status(400).send({ message: "propietarioId no corresponde a ningún propietario registrado" });
+        }
+      }
+
+      if (parsed.data.agricultorId) {
+        const agricultor = await getUsuarioById(parsed.data.agricultorId);
+        if (!agricultor || agricultor.rol !== "AGRICULTOR") {
+          return reply.status(400).send({ message: "agricultorId debe corresponder a un usuario con rol AGRICULTOR" });
+        }
+      }
+
+      const actualizado = await updatePredio(request.params.id, parsed.data);
+      if (actualizado === "no-changes") {
+        return { success: true, data: existente };
+      }
+      return { success: true, data: actualizado };
+    }
+  );
 }

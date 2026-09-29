@@ -8,7 +8,11 @@ import QRCodeImg from "@/components/QRCode";
 import RegistrarBlockchainBtn from "./RegistrarBlockchainBtn";
 import { DescargarPdfBtn } from "./DescargarPdfBtn";
 import { PlantasGrid, type PlantaLote } from "./PlantasGrid";
+import { NuevaPlantaForm } from "./NuevaPlantaForm";
+import { NuevoEventoForm } from "./NuevoEventoForm";
+import { EditarLoteBtn } from "../EditarLoteBtn";
 import { EudrSeccion, type EudrEstadoLote } from "./EudrSeccion";
+import { getSession } from "@/lib/auth";
 
 interface CampanaLote {
   id: string;
@@ -34,6 +38,9 @@ interface LoteDetalle {
   txRegistro: string | null;
   fechaSiembra: string | null;
   fechaCosechaEst: string | null;
+  fechaCosechaReal: string | null;
+  volumenCosechaKg: number | null;
+  sistemaRiego: string | null;
   createdAt: string;
   predio: {
     id: string;
@@ -44,6 +51,14 @@ interface LoteDetalle {
     latitud: number | null;
     longitud: number | null;
     altitudMsnm: number | null;
+    fuenteAgua: string | null;
+    tipoSuelo: string | null;
+    usoPrevio: string | null;
+    areaBosqueHa: number | null;
+    tieneBodegaAgroquimicos: boolean;
+    tieneAguaPotable: boolean;
+    tieneSSSBasicas: boolean;
+    tieneZonaAcopio: boolean;
   };
   agricultor: { nombres: string; apellidos: string; numeroDocumento: string };
   eventos: Array<{
@@ -79,6 +94,7 @@ export default async function LoteDetallePage({
   let eudrEstado: EudrEstadoLote | null = null;
 
   const token = cookies().get("ac_token")?.value ?? "";
+  const session = await getSession();
 
   try {
     const [resLote, resCampanas, resPlantas, resEudr] = await Promise.all([
@@ -109,9 +125,23 @@ export default async function LoteDetallePage({
           <h1 className="text-2xl font-bold text-gray-900 font-mono">{lote.codigoLote}</h1>
           <p className="text-gray-500 mt-1">{lote.especie}{lote.variedad ? ` · ${lote.variedad}` : ""}</p>
         </div>
-        <span className={`badge text-sm px-3 py-1 ${estadoCls}`}>
-          {estadoLabel(lote.estado as any)}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className={`badge text-sm px-3 py-1 ${estadoCls}`}>
+            {estadoLabel(lote.estado as any)}
+          </span>
+          <EditarLoteBtn
+            lote={{
+              id: lote.id,
+              codigoLote: lote.codigoLote,
+              variedad: lote.variedad ?? "",
+              fechaCosechaEst: lote.fechaCosechaEst,
+              fechaCosechaReal: lote.fechaCosechaReal,
+              volumenCosechaKg: lote.volumenCosechaKg,
+              destinoProduccion: null,
+              sistemaRiego: lote.sistemaRiego,
+            }}
+          />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -129,6 +159,12 @@ export default async function LoteDetallePage({
               {lote.predio.altitudMsnm && (
                 <InfoItem label="Altitud" value={`${lote.predio.altitudMsnm} msnm`} />
               )}
+              {lote.predio.fuenteAgua && <InfoItem label="Fuente de agua" value={lote.predio.fuenteAgua} />}
+              {lote.predio.tipoSuelo && <InfoItem label="Tipo de suelo" value={lote.predio.tipoSuelo} />}
+              {lote.predio.usoPrevio && <InfoItem label="Uso previo" value={lote.predio.usoPrevio} />}
+              {lote.predio.areaBosqueHa != null && (
+                <InfoItem label="Área de bosque" value={`${lote.predio.areaBosqueHa} ha`} />
+              )}
               {lote.fechaSiembra && (
                 <InfoItem label="Siembra" value={formatFecha(lote.fechaSiembra)} />
               )}
@@ -136,16 +172,30 @@ export default async function LoteDetallePage({
                 <InfoItem label="Cosecha est." value={formatFecha(lote.fechaCosechaEst)} />
               )}
             </dl>
+
+            {/* Condiciones BPA del predio — relevantes para inspección NTC 5400 */}
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Condiciones BPA</p>
+              <div className="flex flex-wrap gap-2">
+                <CondicionBadge label="Bodega agroquímicos" ok={lote.predio.tieneBodegaAgroquimicos} />
+                <CondicionBadge label="Agua potable" ok={lote.predio.tieneAguaPotable} />
+                <CondicionBadge label="SSS básicas" ok={lote.predio.tieneSSSBasicas} />
+                <CondicionBadge label="Zona de acopio" ok={lote.predio.tieneZonaAcopio} />
+              </div>
+            </div>
           </div>
 
           {/* Eventos de trazabilidad */}
           <div className="card">
-            <h2 className="font-semibold text-gray-800 mb-4">
-              Eventos de trazabilidad
-              <span className="ml-2 text-xs font-normal text-gray-400">
-                ({lote.eventos.length} registros)
-              </span>
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-semibold text-gray-800">
+                Eventos de trazabilidad
+                <span className="ml-2 text-xs font-normal text-gray-400">
+                  ({lote.eventos.length} registros)
+                </span>
+              </h2>
+              {session && <NuevoEventoForm loteId={lote.id} tecnicoId={session.id} />}
+            </div>
 
             {lote.eventos.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-6">
@@ -194,10 +244,13 @@ export default async function LoteDetallePage({
 
           {/* Plantas del lote */}
           <div className="card">
-            <h2 className="font-semibold text-gray-800 mb-4">
-              Plantas
-              <span className="ml-2 text-xs font-normal text-gray-400">({plantas.length})</span>
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-semibold text-gray-800">
+                Plantas
+                <span className="ml-2 text-xs font-normal text-gray-400">({plantas.length})</span>
+              </h2>
+              <NuevaPlantaForm loteId={lote.id} />
+            </div>
             <PlantasGrid plantas={plantas} />
           </div>
 
@@ -373,5 +426,13 @@ function InfoItem({ label, value }: { label: string; value: string }) {
       <dt className="text-gray-400 text-xs">{label}</dt>
       <dd className="text-gray-800 font-medium text-sm mt-0.5">{value}</dd>
     </div>
+  );
+}
+
+function CondicionBadge({ label, ok }: { label: string; ok: boolean }) {
+  return (
+    <span className={`badge text-[10px] ${ok ? "bg-emerald-50 text-emerald-600" : "bg-gray-100 text-gray-400"}`}>
+      {ok ? "✓" : "✕"} {label}
+    </span>
   );
 }

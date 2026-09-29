@@ -54,13 +54,31 @@ const MapPinIcon = () => (
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 11a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />
   </svg>
 );
+const UserIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+      d="M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0zM12 14a7 7 0 0 0-7 7h14a7 7 0 0 0-7-7z" />
+  </svg>
+);
+const GridIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+      d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z" />
+  </svg>
+);
 
 const NAV: NavItem[] = [
   {
     href: "/inicio",
     label: "Inicio",
     icon: <HomeIcon />,
-    roles: ["ADMIN", "AGRICULTOR", "INSPECTOR_BPA", "INSPECTOR_ICA", "CERTIFICADORA", "INVIMA"],
+    roles: ["ADMIN", "AGRICULTOR", "TECNICO", "INSPECTOR_BPA", "INSPECTOR_ICA", "CERTIFICADORA", "INVIMA"],
+  },
+  {
+    href: "/propietarios",
+    label: "Propietarios",
+    icon: <UserIcon />,
+    roles: ["ADMIN"],
   },
   {
     href: "/predios",
@@ -69,22 +87,28 @@ const NAV: NavItem[] = [
     roles: ["ADMIN", "AGRICULTOR", "CERTIFICADORA"],
   },
   {
+    href: "/parcelas",
+    label: "Parcelas",
+    icon: <GridIcon />,
+    roles: ["ADMIN", "AGRICULTOR", "CERTIFICADORA"],
+  },
+  {
     href: "/lotes",
     label: "Mis Lotes",
     icon: <LeafIcon />,
-    roles: ["ADMIN", "AGRICULTOR", "INSPECTOR_BPA", "INSPECTOR_ICA", "CERTIFICADORA", "INVIMA"],
+    roles: ["ADMIN", "AGRICULTOR", "TECNICO", "INSPECTOR_BPA", "INSPECTOR_ICA", "CERTIFICADORA", "INVIMA"],
   },
   {
     href: "/campanas",
     label: "Campañas",
     icon: <CalendarIcon />,
-    roles: ["ADMIN", "AGRICULTOR", "INSPECTOR_BPA", "INSPECTOR_ICA", "CERTIFICADORA", "INVIMA"],
+    roles: ["ADMIN", "AGRICULTOR", "TECNICO", "INSPECTOR_BPA", "INSPECTOR_ICA", "CERTIFICADORA", "INVIMA"],
   },
   {
     href: "/inspecciones",
     label: "Inspecciones",
     icon: <ClipboardIcon />,
-    roles: ["ADMIN", "INSPECTOR_BPA", "INSPECTOR_ICA"],
+    roles: ["ADMIN", "INSPECTOR_BPA", "INSPECTOR_ICA", "INVIMA", "CERTIFICADORA"],
   },
   {
     href: "/certificacion",

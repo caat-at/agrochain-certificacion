@@ -1,13 +1,6 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { getApiUrl } from "@/lib/client";
-
-function getToken(): string {
-  if (typeof document === "undefined") return "";
-  const match = document.cookie.match(/(?:^|;\s*)ac_token=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : "";
-}
 
 interface Props {
   campanaId: string;
@@ -66,13 +59,10 @@ export function RegistrarAporteFaltante({
       }
 
       const res = await fetch(
-        `${getApiUrl()}/api/campanas/${campanaId}/registros/${plantaId}/aportes`,
+        `/api/campanas/${campanaId}/registros/${plantaId}/aportes`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${getToken()}`,
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             campos: camposObj,
             contentHash: `manual_admin_${Date.now()}`,

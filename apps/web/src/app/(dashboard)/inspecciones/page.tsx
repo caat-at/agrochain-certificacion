@@ -13,13 +13,12 @@ const AMOY_SCAN = "https://amoy.polygonscan.com/tx";
 interface InspeccionItem {
   id: string;
   loteId: string;
-  lote: {
-    codigoLote: string;
-    especie: string;
-    estado: string;
-    predio: { nombrePredio: string };
-  };
-  inspector: { nombres: string; apellidos: string };
+  loteCodigoLote: string;
+  loteEspecie: string;
+  loteEstado: string;
+  predioNombrePredio: string | null;
+  inspectorNombres: string;
+  inspectorApellidos: string;
   resultado: string;
   puntaje: number | null;
   hallazgosCriticos: number;
@@ -81,14 +80,25 @@ export default async function InspeccionesPage() {
   const enCurso    = inspecciones.filter(i => i.estado === "PROGRAMADA" || i.estado === "EN_CURSO");
   const completadas = inspecciones.filter(i => i.estado === "COMPLETADA");
 
+  // CERTIFICADORA ve todo pero no puede operar inspecciones (rol de solo
+  // lectura, para auditar antes de certificar). INVIMA opera su propio tipo
+  // de inspeccion (inocuidad), reusando el mismo modal que BPA.
+  const esSoloLectura = session?.rol === "CERTIFICADORA";
+  const tipoInspeccion = session?.rol === "INVIMA" ? "INVIMA" : "BPA_CERTIFICACION";
+
   return (
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Inspecciones</h1>
-        <p className="text-sm text-gray-500 mt-1">Gestión de inspecciones de campo NTC 5400 BPA</p>
+        <p className="text-sm text-gray-500 mt-1">
+          {tipoInspeccion === "INVIMA"
+            ? "Gestión de inspecciones de inocuidad alimentaria (INVIMA)"
+            : "Gestión de inspecciones de campo NTC 5400 BPA"}
+        </p>
       </div>
 
       {/* Lotes disponibles para inspeccionar */}
+      {!esSoloLectura && (
       <section>
         <h2 className="text-base font-semibold text-gray-800 mb-3">
           Lotes disponibles para inspeccionar
@@ -131,6 +141,7 @@ export default async function InspeccionesPage() {
                           loteId={lote.id}
                           loteCode={lote.codigoLote}
                           token={token}
+                          tipoInspeccion={tipoInspeccion}
                         />
                       </div>
                     </td>
@@ -141,6 +152,7 @@ export default async function InspeccionesPage() {
           </div>
         )}
       </section>
+      )}
 
       {/* Inspecciones en curso */}
       {enCurso.length > 0 && (
@@ -165,12 +177,12 @@ export default async function InspeccionesPage() {
                   <tr key={i.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3">
                       <Link href={`/lotes/${i.loteId}`} className="font-mono text-xs font-semibold text-verde-600 hover:underline">
-                        {i.lote.codigoLote}
+                        {i.loteCodigoLote}
                       </Link>
-                      <p className="text-xs text-gray-400">{i.lote.predio.nombrePredio}</p>
+                      <p className="text-xs text-gray-400">{i.predioNombrePredio ?? "—"}</p>
                     </td>
                     <td className="px-4 py-3 text-gray-600 text-xs">
-                      {i.inspector.nombres} {i.inspector.apellidos}
+                      {i.inspectorNombres} {i.inspectorApellidos}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`badge text-xs ${
@@ -185,19 +197,22 @@ export default async function InspeccionesPage() {
                       {formatFecha(i.createdAt)}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        {i.estado === "PROGRAMADA" && (
-                          <IniciarInspeccionBtn inspeccionId={i.id} />
-                        )}
-                        {i.estado === "EN_CURSO" && (
-                          <CompletarInspeccionBtn
-                            loteId={i.loteId}
-                            loteCode={i.lote.codigoLote}
-                            token={token}
-                            inspeccionId={i.id}
-                          />
-                        )}
-                      </div>
+                      {!esSoloLectura && (
+                        <div className="flex items-center justify-end gap-2">
+                          {i.estado === "PROGRAMADA" && (
+                            <IniciarInspeccionBtn inspeccionId={i.id} />
+                          )}
+                          {i.estado === "EN_CURSO" && (
+                            <CompletarInspeccionBtn
+                              loteId={i.loteId}
+                              loteCode={i.loteCodigoLote}
+                              token={token}
+                              inspeccionId={i.id}
+                              tipoInspeccion={tipoInspeccion}
+                            />
+                          )}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -232,12 +247,12 @@ export default async function InspeccionesPage() {
                   <tr key={i.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3">
                       <Link href={`/lotes/${i.loteId}`} className="font-mono text-xs font-semibold text-verde-600 hover:underline">
-                        {i.lote.codigoLote}
+                        {i.loteCodigoLote}
                       </Link>
-                      <p className="text-xs text-gray-400">{i.lote.predio.nombrePredio}</p>
+                      <p className="text-xs text-gray-400">{i.predioNombrePredio ?? "—"}</p>
                     </td>
                     <td className="px-4 py-3 text-gray-600 text-xs">
-                      {i.inspector.nombres} {i.inspector.apellidos}
+                      {i.inspectorNombres} {i.inspectorApellidos}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`badge text-xs ${RESULTADO_BADGE[i.resultado] ?? "bg-gray-100 text-gray-500"}`}>
@@ -263,6 +278,8 @@ export default async function InspeccionesPage() {
                         >
                           {i.txHash.slice(0, 10)}…
                         </a>
+                      ) : esSoloLectura ? (
+                        <span className="text-gray-400">Sin anclar</span>
                       ) : (
                         <AnclarInspeccionBtn inspeccionId={i.id} />
                       )}

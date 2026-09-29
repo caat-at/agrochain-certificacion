@@ -26,11 +26,23 @@ interface AgricultorContacto {
   telefono: string | null;
 }
 
+interface PropietarioContacto {
+  nombres: string;
+  apellidos: string;
+  tipoDocumento: string;
+  numeroDocumento: string;
+  email: string | null;
+  telefono: string | null;
+  direccion: string | null;
+}
+
 interface PredioDetalle {
   id: string;
   nombrePredio: string;
   departamento: string;
   municipio: string;
+  departamentoNombre: string | null;
+  municipioNombre: string | null;
   vereda: string | null;
   areaTotalHa: number;
   areaProductivaHa: number | null;
@@ -38,7 +50,8 @@ interface PredioDetalle {
   latitud: number;
   longitud: number;
   altitudMsnm: number | null;
-  agricultor: AgricultorContacto;
+  agricultor: AgricultorContacto | null;
+  propietario: PropietarioContacto | null;
   lotes: LotePredio[];
 }
 
@@ -87,7 +100,7 @@ export default async function PredioDetallePage({ params }: { params: { id: stri
           <Link href="/predios" className="text-sm text-gray-400 hover:text-verde-500">← Predios</Link>
           <h1 className="text-2xl font-bold text-gray-900 mt-1">{predio.nombrePredio}</h1>
           <p className="text-gray-500 mt-1">
-            {predio.municipio}, {predio.departamento}{predio.vereda ? ` · ${predio.vereda}` : ""}
+            {predio.municipioNombre ?? predio.municipio}, {predio.departamentoNombre ?? predio.departamento}{predio.vereda ? ` · ${predio.vereda}` : ""}
           </p>
         </div>
       </div>
@@ -151,39 +164,71 @@ export default async function PredioDetallePage({ params }: { params: { id: stri
 
         {/* Columna derecha: evaluación + puntaje */}
         <div className="space-y-6">
-          {/* Propietario */}
+          {/* Propietario (dueño legal, sin cuenta de acceso) */}
           <div className="card">
             <h2 className="font-semibold text-gray-800 mb-3">Propietario</h2>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-verde-50 rounded-full flex items-center justify-center text-verde-500 font-semibold">
-                {predio.agricultor.nombres.charAt(0)}
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-900">
-                  {predio.agricultor.nombres} {predio.agricultor.apellidos}
-                </p>
-                <p className="text-xs text-gray-400">
-                  {predio.agricultor.tipoDocumento} {predio.agricultor.numeroDocumento}
-                </p>
-              </div>
-            </div>
-            {(predio.agricultor.telefono || predio.agricultor.email) && (
-              <dl className="mt-3 pt-3 border-t border-gray-100 space-y-1.5 text-xs">
-                {predio.agricultor.telefono && (
-                  <div className="flex justify-between">
-                    <dt className="text-gray-400">Teléfono</dt>
-                    <dd className="text-gray-700 font-medium">{predio.agricultor.telefono}</dd>
+            {predio.propietario ? (
+              <>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-verde-50 rounded-full flex items-center justify-center text-verde-500 font-semibold">
+                    {predio.propietario.nombres.charAt(0)}
                   </div>
-                )}
-                {predio.agricultor.email && (
-                  <div className="flex justify-between">
-                    <dt className="text-gray-400">Email</dt>
-                    <dd className="text-gray-700 font-medium">{predio.agricultor.email}</dd>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">
+                      {predio.propietario.nombres} {predio.propietario.apellidos}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      {predio.propietario.tipoDocumento} {predio.propietario.numeroDocumento}
+                    </p>
                   </div>
+                </div>
+                {(predio.propietario.telefono || predio.propietario.email || predio.propietario.direccion) && (
+                  <dl className="mt-3 pt-3 border-t border-gray-100 space-y-1.5 text-xs">
+                    {predio.propietario.telefono && (
+                      <div className="flex justify-between">
+                        <dt className="text-gray-400">Teléfono</dt>
+                        <dd className="text-gray-700 font-medium">{predio.propietario.telefono}</dd>
+                      </div>
+                    )}
+                    {predio.propietario.email && (
+                      <div className="flex justify-between">
+                        <dt className="text-gray-400">Email</dt>
+                        <dd className="text-gray-700 font-medium">{predio.propietario.email}</dd>
+                      </div>
+                    )}
+                    {predio.propietario.direccion && (
+                      <div className="flex justify-between">
+                        <dt className="text-gray-400">Dirección</dt>
+                        <dd className="text-gray-700 font-medium">{predio.propietario.direccion}</dd>
+                      </div>
+                    )}
+                  </dl>
                 )}
-              </dl>
+              </>
+            ) : (
+              <p className="text-sm text-gray-400">Sin propietario asignado.</p>
             )}
           </div>
+
+          {/* Usuario operador — opcional, quien opera/ve el predio en el sistema */}
+          {predio.agricultor && (
+            <div className="card">
+              <h2 className="font-semibold text-gray-800 mb-3">Usuario operador</h2>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center text-blue-500 font-semibold">
+                  {predio.agricultor.nombres.charAt(0)}
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-900">
+                    {predio.agricultor.nombres} {predio.agricultor.apellidos}
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    {predio.agricultor.tipoDocumento} {predio.agricultor.numeroDocumento}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="card">
             <h2 className="font-semibold text-gray-800 mb-4">Evaluación STBN</h2>

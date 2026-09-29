@@ -10,6 +10,7 @@ import {
   getDeclaracionVigentePorLote,
   crearCertificadoEudrRequisito,
   calcularPuntajeStbnLote,
+  getInspeccionVigentePorLoteYTipo,
 } from "@agrochain/database";
 import { emitirCertificadoOnChain, isConfigured } from "../services/blockchain.js";
 
@@ -107,6 +108,26 @@ export async function certificadosRoutes(app: FastifyInstance) {
               `(mínimo requerido: 80). Completa y finaliza la evaluación de pilares en ` +
               `/api/stbn/predios/:predioId/evaluaciones antes de emitir.`,
             puntajeStbn,
+          });
+        }
+      }
+
+      // Requisito para INVIMA_INOCUIDAD: exige una inspeccion tipo_inspeccion
+      // 'INVIMA' aprobada (o con observaciones) para este lote — mismo nivel
+      // de rigor que el bloqueo EUDR/STBN de arriba, antes este tipo de
+      // certificado no exigia ninguna inspeccion previa.
+      if (tipo === "INVIMA_INOCUIDAD") {
+        const inspeccionInvima = await getInspeccionVigentePorLoteYTipo(loteId, "INVIMA");
+        const aprobada =
+          !!inspeccionInvima &&
+          (inspeccionInvima.resultado === "APROBADO" || inspeccionInvima.resultado === "APROBADO_CON_OBSERVACIONES");
+
+        if (!aprobada) {
+          return reply.status(400).send({
+            message:
+              "No se puede emitir certificado INVIMA_INOCUIDAD sin una inspección tipo INVIMA aprobada para este lote. " +
+              "Completa el flujo en /api/inspecciones antes de emitir.",
+            inspeccionInvima,
           });
         }
       }

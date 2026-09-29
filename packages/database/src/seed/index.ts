@@ -198,6 +198,30 @@ async function seed() {
     .then((r) => r.rows[0].id as string);
   console.log("   ✅ Finca El Paraíso — Rionegro, Antioquia");
 
+  // ── PARCELAS DEMO ────────────────────────────────────────────────────────
+  // predio -> parcela -> lote: cada lote demo vive en su propia parcela
+  // (subdivision fisica permanente del predio), no directo en el predio.
+  console.log("\n🗺️  Creando parcelas demo...");
+  const parcela1Id = await pool
+    .query(
+      `INSERT INTO parcelas (predio_id, codigo_parcela, nombre, area_ha, uso_actual)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (codigo_parcela) DO UPDATE SET nombre = EXCLUDED.nombre
+       RETURNING id`,
+      [predioId, "PAR-05615-DEMO01", "Lote Café", 2.5, "Coffea arabica"]
+    )
+    .then((r) => r.rows[0].id as string);
+  const parcela2Id = await pool
+    .query(
+      `INSERT INTO parcelas (predio_id, codigo_parcela, nombre, area_ha, uso_actual)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (codigo_parcela) DO UPDATE SET nombre = EXCLUDED.nombre
+       RETURNING id`,
+      [predioId, "PAR-05615-DEMO02", "Lote Aguacate", 1.8, "Persea americana"]
+    )
+    .then((r) => r.rows[0].id as string);
+  console.log("   ✅ 2 parcelas demo");
+
   // ── LOTE 1 — Café Castillo ───────────────────────────────────────────────
   console.log("\n🌿 Creando lotes...");
   const loteData1 = {
@@ -210,13 +234,13 @@ async function seed() {
   const lote1Id = await pool
     .query(
       `INSERT INTO lotes
-         (predio_id, agricultor_id, codigo_lote, especie, variedad, area_ha,
+         (parcela_id, agricultor_id, codigo_lote, especie, variedad, area_ha,
           fecha_siembra, fecha_cosecha_est, destino_produccion, estado, data_hash, sync_estado)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'EXPORTACION','EN_PRODUCCION',$9,'VERIFICADO')
        ON CONFLICT (codigo_lote) DO UPDATE SET especie = EXCLUDED.especie
        RETURNING id`,
       [
-        predioId, agricultorId, "COL-05-2024-00001", "Coffea arabica", "Castillo Colombia", 2.5,
+        parcela1Id, agricultorId, "COL-05-2024-00001", "Coffea arabica", "Castillo Colombia", 2.5,
         "2024-03-01", "2024-11-01", dataHash1,
       ]
     )
@@ -234,13 +258,13 @@ async function seed() {
   const lote2Id = await pool
     .query(
       `INSERT INTO lotes
-         (predio_id, agricultor_id, codigo_lote, especie, variedad, area_ha,
+         (parcela_id, agricultor_id, codigo_lote, especie, variedad, area_ha,
           fecha_siembra, fecha_cosecha_est, destino_produccion, sistema_riego, estado, data_hash, sync_estado)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'EXPORTACION','GOTEO','EN_PRODUCCION',$9,'VERIFICADO')
        ON CONFLICT (codigo_lote) DO UPDATE SET especie = EXCLUDED.especie
        RETURNING id`,
       [
-        predioId, agricultorId, "COL-05-2024-00002", "Persea americana", "Hass", 1.8,
+        parcela2Id, agricultorId, "COL-05-2024-00002", "Persea americana", "Hass", 1.8,
         "2024-05-15", "2026-05-01", dataHash2,
       ]
     )

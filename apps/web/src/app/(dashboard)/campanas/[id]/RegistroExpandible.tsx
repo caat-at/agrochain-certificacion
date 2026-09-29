@@ -301,7 +301,7 @@ function TablaAportes({ aportes }: { aportes: AporteTecnico[] }) {
 export function RegistroExpandible({
   registro,
   camposRequeridos,
-  campanaId: _campanaId,
+  campanaId,
   codigoCampana,
   campanaAbierta,
   tecnicos,
@@ -532,7 +532,7 @@ export function RegistroExpandible({
                           </span>
                         </div>
                         <RegistrarAporteFaltante
-                          campanaId={_campanaId}
+                          campanaId={campanaId}
                           plantaId={registro.plantaId}
                           codigoPlanta={registro.planta.codigoPlanta}
                           tecnico={t.tecnico}

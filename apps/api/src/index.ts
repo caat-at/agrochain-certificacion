@@ -5,7 +5,10 @@ import jwt from "@fastify/jwt";
 import multipart from "@fastify/multipart";
 
 import { authRoutes } from "./routes/auth.js";
+import { propietariosRoutes } from "./routes/propietarios.js";
+import { catalogoRoutes } from "./routes/catalogo.js";
 import { prediosRoutes } from "./routes/predios.js";
+import { parcelasRoutes } from "./routes/parcelas.js";
 import { lotesRoutes } from "./routes/lotes.js";
 import { eventosRoutes } from "./routes/eventos.js";
 import { syncRoutes } from "./routes/sync.js";
@@ -53,7 +56,10 @@ await app.register(multipart, {
 
 // ── RUTAS ─────────────────────────────────────────────────────────────────────
 await app.register(authRoutes,         { prefix: "/api/auth" });
+await app.register(propietariosRoutes, { prefix: "/api/propietarios" });
+await app.register(catalogoRoutes,     { prefix: "/api/catalogo" });
 await app.register(prediosRoutes,      { prefix: "/api/predios" });
+await app.register(parcelasRoutes,     { prefix: "/api/parcelas" });
 await app.register(lotesRoutes,        { prefix: "/api/lotes" });
 await app.register(eventosRoutes,      { prefix: "/api/eventos" });
 await app.register(syncRoutes,         { prefix: "/api/sync" });

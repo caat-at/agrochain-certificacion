@@ -13,12 +13,18 @@ import {
   updateLoteEstado,
 } from "@agrochain/database";
 import { finalizarInspeccionOnChain, isConfigured } from "../services/blockchain";
+import { requireRole } from "../middleware/auth.js";
+
+// Roles que pueden operar inspecciones (crear/iniciar/completar/anclar) —
+// antes estos 4 endpoints no validaban rol en absoluto, cualquier usuario
+// autenticado podia escribir aqui.
+const ROLES_INSPECTOR = ["ADMIN", "INSPECTOR_BPA", "INSPECTOR_ICA", "INVIMA"] as const;
 
 const RegistrarInspeccionSchema = z.object({
   loteId:            z.string(),
   inspectorId:       z.string(),
   organizacionId:    z.string(),
-  tipoInspeccion:    z.enum(["ICA_INICIAL", "ICA_SEGUIMIENTO", "BPA_CERTIFICACION", "BPA_RENOVACION", "INVIMA"]),
+  tipoInspeccion:    z.enum(["ICA_INICIAL", "ICA_SEGUIMIENTO", "BPA_CERTIFICACION", "BPA_RENOVACION", "INVIMA", "INTERNA"]),
   fechaSolicitud:    z.string().datetime(),
   fechaProgramada:   z.string().datetime().optional(),
 });
@@ -42,7 +48,9 @@ export async function inspeccionesRoutes(app: FastifyInstance) {
 
     const inspecciones = await listInspecciones({
       inspectorId:
-        payload.rol === "INSPECTOR_ICA" || payload.rol === "INSPECTOR_BPA" ? payload.sub : undefined,
+        payload.rol === "INSPECTOR_ICA" || payload.rol === "INSPECTOR_BPA" || payload.rol === "INVIMA"
+          ? payload.sub
+          : undefined,
     });
 
     return { inspecciones };
@@ -51,7 +59,7 @@ export async function inspeccionesRoutes(app: FastifyInstance) {
   // POST /api/inspecciones — registrar solicitud de inspección
   app.post<{ Body: z.infer<typeof RegistrarInspeccionSchema> }>(
     "/",
-    { preHandler: [(app as any).authenticate] },
+    { preHandler: [(app as any).authenticate, requireRole(...ROLES_INSPECTOR)] },
     async (request, reply) => {
       const parsed = RegistrarInspeccionSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -81,7 +89,7 @@ export async function inspeccionesRoutes(app: FastifyInstance) {
   // PATCH /api/inspecciones/:id/iniciar — pasar a EN_CURSO
   app.patch<{ Params: { id: string } }>(
     "/:id/iniciar",
-    { preHandler: [(app as any).authenticate] },
+    { preHandler: [(app as any).authenticate, requireRole(...ROLES_INSPECTOR)] },
     async (request, reply) => {
       const { id } = request.params;
 
@@ -104,7 +112,7 @@ export async function inspeccionesRoutes(app: FastifyInstance) {
     Body: z.infer<typeof CompletarInspeccionSchema>;
   }>(
     "/:id/completar",
-    { preHandler: [(app as any).authenticate] },
+    { preHandler: [(app as any).authenticate, requireRole(...ROLES_INSPECTOR)] },
     async (request, reply) => {
       const parsed = CompletarInspeccionSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -127,8 +135,10 @@ export async function inspeccionesRoutes(app: FastifyInstance) {
         hallazgosMayores:  d.hallazgosMayores,
         hallazgosMenores:  d.hallazgosMenores,
       });
-      const reporteHash = ethers.keccak256(ethers.toUtf8Bytes(reportePayload));
-      const reporteHashHex = reporteHash.slice(2); // sin 0x para registrarEventoOnChain
+      // reporte_hash es varchar(64) — se guarda sin el prefijo "0x" de
+      // ethers.keccak256 (66 chars) para que quepa en la columna; el mismo
+      // valor sin 0x es el que ya se necesita para registrarEventoOnChain.
+      const reporteHashHex = ethers.keccak256(ethers.toUtf8Bytes(reportePayload)).slice(2);
 
       const actualizada = await completarInspeccion(id, {
         resultado:         d.resultado,
@@ -139,7 +149,7 @@ export async function inspeccionesRoutes(app: FastifyInstance) {
         observaciones:     d.observaciones,
         planMejora:        d.planMejora,
         fechaRealizada:    d.fechaRealizada ? new Date(d.fechaRealizada) : new Date(),
-        reporteHash,
+        reporteHash:       reporteHashHex,
       });
 
       // Actualizar estado del lote
@@ -182,7 +192,7 @@ export async function inspeccionesRoutes(app: FastifyInstance) {
   // POST /api/inspecciones/:id/anclar — reintentar ancla on-chain
   app.post<{ Params: { id: string } }>(
     "/:id/anclar",
-    { preHandler: [(app as any).authenticate] },
+    { preHandler: [(app as any).authenticate, requireRole(...ROLES_INSPECTOR)] },
     async (request, reply) => {
       const inspeccion = await getInspeccionById(request.params.id);
       if (!inspeccion) return reply.status(404).send({ message: "Inspección no encontrada" });

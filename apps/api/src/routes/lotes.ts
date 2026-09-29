@@ -10,14 +10,17 @@ import {
   listLotesConResumen,
   countLotes,
   createLote,
+  updateLote,
   updateLoteBlockchainTx,
   listPlantasByLote,
   createPlanta,
+  getParcelaById,
+  getPredioById,
 } from "@agrochain/database";
 import { registrarLoteOnChain, isConfigured } from "../services/blockchain.js";
 
 const CrearLoteSchema = z.object({
-  predioId: z.string(),
+  parcelaId: z.string().uuid(),
   agricultorId: z.string(),
   especie: z.string().min(1),
   variedad: z.string().min(1),
@@ -26,6 +29,18 @@ const CrearLoteSchema = z.object({
   fechaCosechaEst: z.string().datetime().optional(),
   destinoProduccion: z.enum(["CONSUMO_INTERNO", "EXPORTACION", "AGROINDUSTRIA", "MIXTO"]).optional(),
   codigoDepartamento: z.string().length(2),
+});
+
+const EditarLoteSchema = z.object({
+  variedad: z.string().min(1).optional(),
+  fechaCosechaEst: z.string().datetime().nullable().optional(),
+  fechaCosechaReal: z.string().datetime().nullable().optional(),
+  volumenCosechaKg: z.number().positive().nullable().optional(),
+  destinoProduccion: z.enum(["CONSUMO_INTERNO", "EXPORTACION", "AGROINDUSTRIA", "MIXTO"]).nullable().optional(),
+  sistemaRiego: z.string().max(50).nullable().optional(),
+  distanciaSiembraM: z.number().positive().nullable().optional(),
+  densidadPlantas: z.number().int().positive().nullable().optional(),
+  cultivoAnterior: z.string().max(150).nullable().optional(),
 });
 
 export async function lotesRoutes(app: FastifyInstance) {
@@ -44,6 +59,9 @@ export async function lotesRoutes(app: FastifyInstance) {
         codigoLote:       l.codigoLote,
         predioId:         l.predioId,
         predioNombre:     l.predioNombre ?? "",
+        parcelaId:        l.parcelaId,
+        parcelaNombre:    l.parcelaNombre ?? null,
+        parcelaCodigo:    l.parcelaCodigo ?? null,
         especie:          l.especie,
         variedad:         l.variedad,
         areaHa:           l.areaHa,
@@ -73,11 +91,16 @@ export async function lotesRoutes(app: FastifyInstance) {
     return { success: true, data: lote };
   });
 
-  // POST /api/lotes
+  // POST /api/lotes — crear (ADMIN cualquiera, AGRICULTOR solo en parcelas de predios propios)
   app.post<{ Body: z.infer<typeof CrearLoteSchema> }>(
     "/",
     { preHandler: [(app as any).authenticate] },
     async (request, reply) => {
+      const payload = (request as any).user as { sub: string; rol: string };
+      if (!["ADMIN", "AGRICULTOR"].includes(payload.rol)) {
+        return reply.status(403).send({ success: false, error: "Sin permisos para crear lotes" });
+      }
+
       const parsed = CrearLoteSchema.safeParse(request.body);
       if (!parsed.success) {
         return reply.status(400).send({ success: false, error: parsed.error.flatten() });
@@ -85,13 +108,26 @@ export async function lotesRoutes(app: FastifyInstance) {
 
       const data = parsed.data;
 
+      const parcela = await getParcelaById(data.parcelaId);
+      if (!parcela) {
+        return reply.status(404).send({ success: false, error: "Parcela no encontrada" });
+      }
+
+      const predio = await getPredioById(parcela.predioId);
+      if (!predio) {
+        return reply.status(404).send({ success: false, error: "Predio de la parcela no encontrado" });
+      }
+      if (payload.rol === "AGRICULTOR" && predio.agricultorId !== payload.sub) {
+        return reply.status(403).send({ success: false, error: "Un agricultor solo puede crear lotes en parcelas de predios propios" });
+      }
+
       const anio = new Date().getFullYear();
       const count = await countLotes();
       const codigoLote = generarCodigoLote(data.codigoDepartamento, anio, count + 1);
 
       const dataHash = generarHashLote({
         codigoLote,
-        predioId: data.predioId,
+        predioId: parcela.predioId,
         agricultorId: data.agricultorId,
         especie: data.especie,
         variedad: data.variedad,
@@ -100,7 +136,7 @@ export async function lotesRoutes(app: FastifyInstance) {
       });
 
       const lote = await createLote({
-        predioId: data.predioId,
+        parcelaId: data.parcelaId,
         agricultorId: data.agricultorId,
         codigoLote,
         especie: data.especie,
@@ -234,4 +270,37 @@ export async function lotesRoutes(app: FastifyInstance) {
     if (!lote) return reply.status(404).send({ success: false, error: "Lote no encontrado" });
     return { success: true, data: lote };
   });
+
+  // PATCH /api/lotes/:id — editar (no permite cambiar estado ni codigoLote,
+  // que tienen su propio flujo dedicado)
+  app.patch<{ Params: { id: string }; Body: z.infer<typeof EditarLoteSchema> }>(
+    "/:id",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
+      const parsed = EditarLoteSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({ message: "Datos inválidos", errors: parsed.error.flatten().fieldErrors });
+      }
+
+      const existente = await getLoteById(request.params.id);
+      if (!existente) {
+        return reply.status(404).send({ message: "Lote no encontrado" });
+      }
+
+      const data = parsed.data;
+      const actualizado = await updateLote(request.params.id, {
+        ...data,
+        fechaCosechaEst: data.fechaCosechaEst !== undefined
+          ? (data.fechaCosechaEst ? new Date(data.fechaCosechaEst) : null)
+          : undefined,
+        fechaCosechaReal: data.fechaCosechaReal !== undefined
+          ? (data.fechaCosechaReal ? new Date(data.fechaCosechaReal) : null)
+          : undefined,
+      });
+      if (actualizado === "no-changes") {
+        return { success: true, data: existente };
+      }
+      return { success: true, data: actualizado };
+    }
+  );
 }

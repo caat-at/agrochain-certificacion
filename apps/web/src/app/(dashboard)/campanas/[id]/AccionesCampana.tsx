@@ -1,13 +1,6 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { getApiUrl } from "@/lib/client";
-
-function getToken(): string {
-  if (typeof document === "undefined") return "";
-  const match = document.cookie.match(/(?:^|;\s*)ac_token=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : "";
-}
 
 // ── Botón: ACTIVA → ABIERTA ───────────────────────────────────────────────────
 
@@ -21,12 +14,9 @@ export function AbrirCampanaBtn({ campanaId }: { campanaId: string }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${getApiUrl()}/api/campanas/${campanaId}/estado`, {
+      const res = await fetch(`/api/campanas/${campanaId}/estado`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getToken()}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ estado: "ABIERTA" }),
       });
       const data = await res.json();
@@ -80,12 +70,9 @@ export function CerrarCampanaBtn({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${getApiUrl()}/api/campanas/${campanaId}/estado`, {
+      const res = await fetch(`/api/campanas/${campanaId}/estado`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getToken()}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ estado: "CERRADA", forzar }),
       });
       const data = await res.json();
@@ -334,9 +321,7 @@ export function AsignarTecnicoBtn({
     if (tecnicos.length > 0) return;
     setCargandoTec(true);
     try {
-      const res = await fetch(`${getApiUrl()}/api/usuarios?rol=TECNICO`, {
-        headers: { Authorization: `Bearer ${getToken()}` },
-      });
+      const res = await fetch(`/api/usuarios?rol=TECNICO`);
       const data = await res.json();
       setTecnicos(data.usuarios ?? []);
       if (data.usuarios?.length > 0) setTecnicoId(data.usuarios[0].id);
@@ -361,12 +346,9 @@ export function AsignarTecnicoBtn({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${getApiUrl()}/api/campanas/${campanaId}/tecnicos`, {
+      const res = await fetch(`/api/campanas/${campanaId}/tecnicos`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getToken()}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ posicion, tecnicoId, camposAsignados: campos }),
       });
       const data = await res.json();
