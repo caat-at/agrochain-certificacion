@@ -86,9 +86,14 @@ const AporteTecnicoSchema = z.object({
 export async function campanasRoutes(app: FastifyInstance) {
 
   // ── GET /api/campanas?loteId=xxx ─────────────────────────────────────────
+  // TECNICO solo ve las campañas en las que está asignado y que no estén CERRADA.
   app.get("/", { preHandler: [(app as any).authenticate] }, async (request) => {
     const { loteId } = request.query as { loteId?: string };
-    const campanas = await listCampanas({ loteId });
+    const payload = (request as any).user as { sub: string; rol: string };
+    const campanas = await listCampanas({
+      loteId,
+      tecnicoId: payload.rol === "TECNICO" ? payload.sub : undefined,
+    });
     return { campanas };
   });
 
@@ -137,8 +142,17 @@ export async function campanasRoutes(app: FastifyInstance) {
   // ── GET /api/campanas/:id ────────────────────────────────────────────────
   app.get("/:id", { preHandler: [(app as any).authenticate] }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const payload = (request as any).user as { sub: string; rol: string };
     const campana = await getCampanaDetalle(id) as any;
     if (!campana) return reply.status(404).send({ message: "Campaña no encontrada" });
+
+    // TECNICO solo puede ver campañas donde está asignado y que no estén CERRADA
+    if (payload.rol === "TECNICO") {
+      const asignado = campana.tecnicos?.some((t: any) => t.tecnico?.id === payload.sub);
+      if (!asignado || campana.estado === "CERRADA") {
+        return reply.status(403).send({ message: "No tienes acceso a esta campaña" });
+      }
+    }
 
     const camposRequeridos: string[] = campana.camposRequeridos;
     const registros   = campana.registros;
@@ -569,6 +583,15 @@ export async function campanasRoutes(app: FastifyInstance) {
       const camposAsignados: string[] = asignacion ? asignacion.camposAsignados : [];
       const posicionTecnico = asignacion?.posicion ?? null;
 
+      // ADMIN: nombres de los técnicos de las 4 posiciones, para poder elegir en cuál actuar
+      const nombresTecnicos = new Map<string, string>();
+      if (payload.rol === "ADMIN") {
+        const tecnicosConNombre = await listCampanaTecnicos(campana.id) as any[];
+        for (const t of tecnicosConNombre) {
+          nombresTecnicos.set(t.tecnico.id, `${t.tecnico.nombres} ${t.tecnico.apellidos}`.trim());
+        }
+      }
+
       // Obtener todas las plantas del lote
       const todasLasPlantas = await listPlantasByLote(loteId);
 
@@ -598,6 +621,23 @@ export async function campanasRoutes(app: FastifyInstance) {
         const camposDatosTecnico = camposAsignados.filter((c) => c !== "foto" && c !== "audio");
         const misCamposFaltantes = camposDatosTecnico.filter((c) => !camposIngresados.includes(c));
 
+        // ADMIN: estado de cada una de las 4 posiciones para esta planta,
+        // para poder registrar/editar el aporte de cualquier tecnico.
+        const posicionesAdmin = payload.rol === "ADMIN"
+          ? tecnicos.map((t: any) => {
+              const yaAportoPos = registro?.aportes.some((a: any) => a.tecnicoId === t.tecnicoId) ?? false;
+              const camposDatosPos = (t.camposAsignados as string[]).filter((c) => c !== "foto" && c !== "audio");
+              return {
+                posicion:        t.posicion,
+                tecnicoId:       t.tecnicoId,
+                tecnicoNombre:   nombresTecnicos.get(t.tecnicoId) ?? "",
+                camposAsignados: t.camposAsignados,
+                camposFaltantes: camposDatosPos.filter((c) => !camposIngresados.includes(c)),
+                yaAporto:        yaAportoPos,
+              };
+            })
+          : undefined;
+
         return {
           ...planta,
           registroId:      registro?.id ?? null,
@@ -607,6 +647,7 @@ export async function campanasRoutes(app: FastifyInstance) {
           camposFaltantes: misCamposFaltantes, // Solo los campos del técnico autenticado
           completo:        faltantes.length === 0,
           yaTecnicoAporto: yaAporte,
+          posicionesAdmin,
         };
       });
 
@@ -625,6 +666,13 @@ export async function campanasRoutes(app: FastifyInstance) {
         // Información de la posición del técnico autenticado
         miPosicion:      posicionTecnico,
         misCampos:       camposAsignados,
+        // ADMIN: las 4 posiciones de la campaña, para poder elegir en cuál actuar
+        posiciones:      payload.rol === "ADMIN" ? tecnicos.map((t: any) => ({
+          posicion:        t.posicion,
+          tecnicoId:       t.tecnicoId,
+          tecnicoNombre:   nombresTecnicos.get(t.tecnicoId) ?? "",
+          camposAsignados: t.camposAsignados,
+        })) : undefined,
         plantas,
         progreso: {
           total:      plantas.length,

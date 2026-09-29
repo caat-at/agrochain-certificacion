@@ -38,9 +38,11 @@ interface Props {
   miPosicion: number | null;
   misCampos: string[];
   plantas: PlantaCampana[];
+  // ADMIN: registra en nombre de tecnicoId/miPosicion en vez del usuario autenticado
+  modoAdmin?: boolean;
 }
 
-export function MisPlantasTecnico({ campanaId, tecnicoId, miPosicion, misCampos, plantas }: Props) {
+export function MisPlantasTecnico({ campanaId, tecnicoId, miPosicion, misCampos, plantas, modoAdmin = false }: Props) {
   const [filtro, setFiltro] = useState<"PENDIENTES" | "COMPLETAS" | "TODAS">("PENDIENTES");
   const [plantaAbierta, setPlantaAbierta] = useState<string | null>(null);
 
@@ -145,6 +147,8 @@ export function MisPlantasTecnico({ campanaId, tecnicoId, miPosicion, misCampos,
                       camposAsignados={misCampos}
                       siempreAbierto
                       onGuardado={() => setPlantaAbierta(null)}
+                      tecnicoIdOverride={modoAdmin ? tecnicoId : undefined}
+                      posicionOverride={modoAdmin ? miPosicion : undefined}
                     />
                   </div>
                 )}

@@ -13,6 +13,7 @@ import { RegistroExpandible } from "./RegistroExpandible";
 import { VerificacionPanel } from "./VerificacionPanel";
 import { PanelBlockchain } from "./PanelBlockchain";
 import { MisPlantasTecnico } from "./MisPlantasTecnico";
+import { TodasLasPlantasAdmin } from "./TodasLasPlantasAdmin";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -54,6 +55,15 @@ interface CampanaTecnico {
   tecnico: { id: string; nombres: string; apellidos: string };
 }
 
+interface PosicionAdmin {
+  posicion: number;
+  tecnicoId: string;
+  tecnicoNombre: string;
+  camposAsignados: string[];
+  camposFaltantes: string[];
+  yaAporto: boolean;
+}
+
 interface PlantaCampana {
   id: string;
   codigoPlanta: string;
@@ -64,6 +74,7 @@ interface PlantaCampana {
   camposFaltantes: string[];
   completo: boolean;
   yaTecnicoAporto: boolean;
+  posicionesAdmin?: PosicionAdmin[];
 }
 
 interface CampanaDetalle {
@@ -263,16 +274,19 @@ export default async function CampanaDetallePage({
   let misPlantas: PlantaCampana[] = [];
   let miPosicion: number | null = null;
   let misCampos: string[] = [];
-  if (session?.rol === "TECNICO" && campanaAbierta) {
+  let posicionesAdmin: { posicion: number; tecnicoId: string; tecnicoNombre: string; camposAsignados: string[] }[] = [];
+  if ((session?.rol === "TECNICO" || session?.rol === "ADMIN") && campanaAbierta) {
     try {
       const movil = await apiFetch<{
         plantas: PlantaCampana[];
         miPosicion: number | null;
         misCampos: string[];
+        posiciones?: { posicion: number; tecnicoId: string; tecnicoNombre: string; camposAsignados: string[] }[];
       }>(`/api/campanas/movil/lote/${campana.loteId}`);
-      misPlantas  = movil.plantas;
-      miPosicion  = movil.miPosicion;
-      misCampos   = movil.misCampos;
+      misPlantas      = movil.plantas;
+      miPosicion      = movil.miPosicion;
+      misCampos       = movil.misCampos;
+      posicionesAdmin = movil.posiciones ?? [];
     } catch {
       // Sin campaña movil disponible — no bloquea el resto de la pagina
     }
@@ -340,6 +354,13 @@ export default async function CampanaDetallePage({
         </div>
       )}
 
+      {/* ADMIN — elige una posición (P1-P4) y registra en nombre de ese técnico */}
+      {session?.rol === "ADMIN" && campanaAbierta && (
+        <div className="mb-6">
+          <TodasLasPlantasAdmin campanaId={campana.id} posiciones={posicionesAdmin} plantas={misPlantas} />
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* ── Columna principal — registros ──────────────────────────────── */}
         <div className="lg:col-span-2 space-y-3">
@@ -361,7 +382,7 @@ export default async function CampanaDetallePage({
             <div className="card text-center py-12">
               <p className="text-gray-400 text-sm">No hay registros de plantas aún.</p>
               <p className="text-gray-300 text-xs mt-1">
-                Los técnicos agregan aportes desde la app móvil.
+                Los técnicos agregan aportes desde su sesión web (arriba, en "Mis plantas").
               </p>
             </div>
           ) : (

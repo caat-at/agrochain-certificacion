@@ -72,7 +72,7 @@ const NAV: NavItem[] = [
     href: "/inicio",
     label: "Inicio",
     icon: <HomeIcon />,
-    roles: ["ADMIN", "AGRICULTOR", "TECNICO", "INSPECTOR_BPA", "INSPECTOR_ICA", "CERTIFICADORA", "INVIMA"],
+    roles: ["ADMIN", "AGRICULTOR", "INSPECTOR_BPA", "INSPECTOR_ICA", "CERTIFICADORA", "INVIMA"],
   },
   {
     href: "/propietarios",
@@ -96,7 +96,7 @@ const NAV: NavItem[] = [
     href: "/lotes",
     label: "Mis Lotes",
     icon: <LeafIcon />,
-    roles: ["ADMIN", "AGRICULTOR", "TECNICO", "INSPECTOR_BPA", "INSPECTOR_ICA", "CERTIFICADORA", "INVIMA"],
+    roles: ["ADMIN", "AGRICULTOR", "INSPECTOR_BPA", "INSPECTOR_ICA", "CERTIFICADORA", "INVIMA"],
   },
   {
     href: "/campanas",

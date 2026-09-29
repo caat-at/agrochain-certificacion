@@ -5,7 +5,7 @@ import LoginForm from "./LoginForm";
 
 export default async function LoginPage() {
   const session = await getSession();
-  if (session) redirect("/lotes");
+  if (session) redirect(session.rol === "TECNICO" ? "/campanas" : "/lotes");
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-verde-50 to-white flex items-center justify-center p-4">

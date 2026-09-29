@@ -959,7 +959,7 @@ export async function getLoteDetalle(id: string): Promise<
       .query(
         `SELECT id, codigo_planta AS "codigoPlanta", numero_planta AS "numeroPlanta", especie, variedad,
                 latitud, longitud, altitud_msnm AS "altitudMsnm", activo
-         FROM plantas WHERE lote_id = $1 AND activo = true ORDER BY numero_planta ASC`,
+         FROM plantas WHERE lote_id = $1 AND activo = true ORDER BY numero_planta::int ASC`,
         [id]
       )
       .then((r) => r.rows),
@@ -1155,7 +1155,7 @@ export async function listPlantasByLote(loteId: string): Promise<Planta[]> {
        altitud_msnm                   AS "altitudMsnm"
      FROM plantas
      WHERE lote_id = $1 AND activo = true
-     ORDER BY numero_planta ASC`,
+     ORDER BY numero_planta::int ASC`,
     [loteId]
   );
   return rows;

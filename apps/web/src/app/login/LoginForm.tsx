@@ -25,13 +25,14 @@ export default function LoginForm() {
         body: JSON.stringify({ email: esEmail ? valor.toLowerCase() : valor, password }),
       });
 
-      const data = await res.json() as { message?: string };
+      const data = await res.json() as { message?: string; usuario?: { rol?: string } };
       if (!res.ok) {
         setError(data.message ?? "Credenciales inválidas");
         return;
       }
 
-      router.push("/lotes");
+      // TECNICO no tiene acceso a Mis Lotes / panel de control — aterriza en Campañas
+      router.push(data.usuario?.rol === "TECNICO" ? "/campanas" : "/lotes");
       router.refresh();
     } catch {
       setError("Error de conexión con el servidor");

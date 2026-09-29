@@ -72,12 +72,18 @@ const APORTE_COLUMNS = `
 
 // ── Campanas ─────────────────────────────────────────────────────────────────
 
-export async function listCampanas(filtros: { loteId?: string } = {}): Promise<unknown[]> {
+export async function listCampanas(filtros: { loteId?: string; tecnicoId?: string } = {}): Promise<unknown[]> {
   const conditions: string[] = [];
   const params: unknown[] = [];
   if (filtros.loteId) {
     params.push(filtros.loteId);
     conditions.push(`c.lote_id = $${params.length}`);
+  }
+  if (filtros.tecnicoId) {
+    // TECNICO solo ve las campañas donde está asignado y que no estén CERRADA
+    params.push(filtros.tecnicoId);
+    conditions.push(`EXISTS (SELECT 1 FROM campana_tecnicos ct WHERE ct.campana_id = c.id AND ct.tecnico_id = $${params.length})`);
+    conditions.push(`c.estado != 'CERRADA'`);
   }
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 

@@ -36,6 +36,9 @@ interface Props {
   camposAsignados: string[]; // ["descripcion", "foto", "audio", ...]
   siempreAbierto?: boolean; // el padre controla la visibilidad (oculta el boton "+")
   onGuardado?: () => void;
+  // ADMIN: registra el aporte en nombre de otro tecnico/posicion (el backend lo valida)
+  tecnicoIdOverride?: string;
+  posicionOverride?: number;
 }
 
 export function RegistrarAporteTecnico({
@@ -47,6 +50,8 @@ export function RegistrarAporteTecnico({
   camposAsignados,
   siempreAbierto = false,
   onGuardado,
+  tecnicoIdOverride,
+  posicionOverride,
 }: Props) {
   const router = useRouter();
   const [abierto, setAbierto]     = useState(siempreAbierto);
@@ -136,12 +141,17 @@ export function RegistrarAporteTecnico({
         camposObj[campo] = meta.tipo === "numero" ? parseFloat(v) : v;
       }
 
+      // El backend recalcula el hash usando el tecnico/posicion efectivos
+      // (el override si el ADMIN registra en nombre de otro tecnico).
+      const tecnicoEfectivo = tecnicoIdOverride ?? tecnicoId;
+      const posicionEfectiva = posicionOverride ?? posicion;
+
       const fechaAporte = new Date().toISOString();
       const contentHash = await generarContentHashAporte({
         plantaId,
         campanaId,
-        tecnicoId,
-        posicion,
+        tecnicoId: tecnicoEfectivo,
+        posicion: posicionEfectiva,
         campos: camposObj,
         fotoHash,
         audioHash,
@@ -158,6 +168,8 @@ export function RegistrarAporteTecnico({
         longitud: gps?.lng,
         contentHash,
         fechaAporte,
+        tecnicoIdOverride,
+        posicionOverride,
       };
 
       const res = await fetch(
@@ -191,7 +203,7 @@ export function RegistrarAporteTecnico({
         onClick={handleAbrir}
         className="text-xs bg-verde-500 hover:bg-verde-600 text-white font-semibold rounded-lg px-3 py-1.5 transition-colors"
       >
-        Registrar mi aporte — P{posicion}
+        {tecnicoIdOverride ? `Registrar aporte — P${posicionOverride}` : `Registrar mi aporte — P${posicion}`}
       </button>
     );
   }
