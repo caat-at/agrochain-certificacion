@@ -142,6 +142,35 @@ export async function getCampanaById(id: string): Promise<Campana | null> {
   return rows[0] ?? null;
 }
 
+export interface UpdateCampanaFields {
+  nombre?: string;
+  descripcion?: string | null;
+  camposRequeridos?: string[];
+}
+
+// Solo nombre/descripcion/camposRequeridos — nunca estado, tecnicos ni hash
+// (esos tienen su propio flujo dedicado con reglas de inmutabilidad).
+export async function updateCampana(
+  id: string,
+  fields: UpdateCampanaFields
+): Promise<Campana | null | "no-changes"> {
+  const sets: string[] = [];
+  const params: unknown[] = [];
+
+  if (fields.nombre !== undefined) { params.push(fields.nombre); sets.push(`nombre = $${params.length}`); }
+  if (fields.descripcion !== undefined) { params.push(fields.descripcion); sets.push(`descripcion = $${params.length}`); }
+  if (fields.camposRequeridos !== undefined) { params.push(fields.camposRequeridos); sets.push(`campos_requeridos = $${params.length}`); }
+
+  if (sets.length === 0) return "no-changes";
+
+  params.push(id);
+  const { rows } = await pool.query<Campana>(
+    `UPDATE campanas SET ${sets.join(", ")} WHERE id = $${params.length} RETURNING ${CAMPANA_COLUMNS_RETURNING}`,
+    params
+  );
+  return rows[0] ?? null;
+}
+
 // Campana + registros activos (no INVALIDADO) + plantas del lote — usado para
 // intentarCierreAutomatico (necesita saber si todas las plantas ya estan COMPLETO).
 export async function getCampanaParaCierreAutomatico(campanaId: string): Promise<
@@ -159,7 +188,11 @@ export async function getCampanaParaCierreAutomatico(campanaId: string): Promise
       )
       .then((r) => r.rows),
     pool
-      .query<{ n: number }>(`SELECT count(*)::int AS n FROM plantas WHERE lote_id = $1 AND activo = true`, [campana.loteId])
+      .query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM lote_plantas lp JOIN plantas p ON p.id = lp.planta_id
+         WHERE lp.lote_id = $1 AND p.activo = true`,
+        [campana.loteId]
+      )
       .then((r) => r.rows[0].n),
   ]);
 
@@ -780,8 +813,10 @@ export async function listCampanasListasParaSellar(): Promise<string[]> {
     `SELECT c.id
      FROM campanas c
      WHERE c.estado = 'ABIERTA'
-       AND (SELECT count(*)::int FROM plantas p WHERE p.lote_id = c.lote_id AND p.activo = true) > 0
-       AND (SELECT count(*)::int FROM plantas p WHERE p.lote_id = c.lote_id AND p.activo = true)
+       AND (SELECT count(*)::int FROM lote_plantas lp JOIN plantas p ON p.id = lp.planta_id
+            WHERE lp.lote_id = c.lote_id AND p.activo = true) > 0
+       AND (SELECT count(*)::int FROM lote_plantas lp JOIN plantas p ON p.id = lp.planta_id
+            WHERE lp.lote_id = c.lote_id AND p.activo = true)
            = (SELECT count(*)::int FROM registros_planta rp WHERE rp.campana_id = c.id AND rp.estado = 'COMPLETO')
        AND NOT EXISTS (
          SELECT 1 FROM registros_planta rp

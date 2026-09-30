@@ -211,9 +211,28 @@ export interface Lote {
   updatedAt: Date;
 }
 
-export interface Planta {
+export interface Especie {
+  id: string;
+  nombreCientifico: string;
+  nombreComun: string;
+  tipoCiclo: "PERENNE" | "ANUAL";
+  activo: boolean;
+}
+
+export interface LotePlanta {
   id: string;
   loteId: string;
+  plantaId: string;
+  fechaVinculacion: Date;
+  fechaDesvinculacion: Date | null;
+  vinculadoPor: string;
+}
+
+export interface Planta {
+  id: string;
+  parcelaId: string;
+  /** @deprecated usar lote_plantas — la planta ya no pertenece a un único lote */
+  loteId: string | null;
   codigoPlanta: string;
   numeroPlanta: string;
   latitud: number;

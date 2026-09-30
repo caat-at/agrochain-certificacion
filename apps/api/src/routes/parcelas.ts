@@ -16,6 +16,7 @@ import {
   updateParcela,
   getPredioById,
   generarCodigoParcela,
+  listPlantasDisponiblesParaLote,
 } from "@agrochain/database";
 
 const CrearParcelaSchema = z.object({
@@ -55,6 +56,22 @@ export async function parcelasRoutes(app: FastifyInstance) {
         return reply.status(404).send({ message: "Parcela no encontrada" });
       }
       return { success: true, data: parcela };
+    }
+  );
+
+  // GET /api/parcelas/:id/plantas-disponibles?especie= — plantas activas de
+  // la parcela, de esa especie, que no estan en ningun lote actualmente
+  // abierto — candidatas a reusar en un lote/cosecha nuevo (cultivos perennes).
+  app.get<{ Params: { id: string } }>(
+    "/:id/plantas-disponibles",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
+      const { especie } = request.query as { especie?: string };
+      if (!especie) {
+        return reply.status(400).send({ message: "El parámetro especie es requerido" });
+      }
+      const plantas = await listPlantasDisponiblesParaLote(request.params.id, especie);
+      return { plantas };
     }
   );
 

@@ -1,5 +1,5 @@
 import pool from "./client.js";
-import type { Usuario, Organizacion, Predio, Propietario, Parcela, Pais, Departamento, Municipio, Lote, Planta, Inspeccion, Certificado, EventoProduccion, EvidenciaBinaria, AgricultorContacto } from "../types.js";
+import type { Usuario, Organizacion, Predio, Propietario, Parcela, Pais, Departamento, Municipio, Especie, Lote, Planta, Inspeccion, Certificado, EventoProduccion, EvidenciaBinaria, AgricultorContacto } from "../types.js";
 
 // =============================================================================
 // AGROCHAIN - Acceso a datos SQL directo (sin ORM)
@@ -308,6 +308,35 @@ export async function listMunicipios(departamentoCod?: string): Promise<Municipi
     params
   );
   return rows;
+}
+
+// ── Catalogo de especies (tipo de ciclo PERENNE/ANUAL) ───────────────────────
+// PERENNE: la planta vive varios ciclos de cosecha sin retirarse (cafe, cacao).
+// ANUAL: la planta se retira tras cosechar, el siguiente lote necesita plantas nuevas.
+
+export async function listEspecies(tipoCiclo?: "PERENNE" | "ANUAL"): Promise<Especie[]> {
+  const where = tipoCiclo ? `WHERE tipo_ciclo = $1 AND activo = true` : `WHERE activo = true`;
+  const params = tipoCiclo ? [tipoCiclo] : [];
+  const { rows } = await pool.query<Especie>(
+    `SELECT id, nombre_cientifico AS "nombreCientifico", nombre_comun AS "nombreComun",
+            tipo_ciclo AS "tipoCiclo", activo
+     FROM especies ${where} ORDER BY nombre_comun`,
+    params
+  );
+  return rows;
+}
+
+// Resuelve el tipo de ciclo por nombre libre (cientifico o comun, case-insensitive) —
+// usado al crear un lote para decidir si sugerir reuso de plantas. null si no hay match
+// en el catalogo (no bloquea la creacion del lote).
+export async function resolverTipoCicloPorNombre(nombreEspecie: string): Promise<"PERENNE" | "ANUAL" | null> {
+  const { rows } = await pool.query<{ tipoCiclo: "PERENNE" | "ANUAL" }>(
+    `SELECT tipo_ciclo AS "tipoCiclo" FROM especies
+     WHERE (lower(nombre_cientifico) = lower($1) OR lower(nombre_comun) = lower($1)) AND activo = true
+     LIMIT 1`,
+    [nombreEspecie]
+  );
+  return rows[0]?.tipoCiclo ?? null;
 }
 
 // ── Parcelas (subdivision fisica permanente del predio) ─────────────────────
@@ -751,7 +780,7 @@ export async function getPredioConLotes(
        lotes.sistema_riego AS "sistemaRiego", lotes.estado, lotes.data_hash AS "dataHash",
        lotes.lote_id_onchain AS "loteIdOnchain",
        lotes.created_at AS "createdAt",
-       (SELECT count(*)::int FROM plantas pl WHERE pl.lote_id = lotes.id) AS "totalPlantas"
+       (SELECT count(*)::int FROM lote_plantas lp WHERE lp.lote_id = lotes.id) AS "totalPlantas"
      FROM lotes
      JOIN parcelas par ON par.id = lotes.parcela_id
      WHERE par.predio_id = $1 AND lotes.estado != 'REVOCADO'
@@ -931,7 +960,7 @@ export async function listLotesConResumen(filtros: {
 
 export async function getLoteDetalle(id: string): Promise<
   | (Lote & {
-      predio: Predio | null;
+      predio: (Predio & { propietario: Propietario | null }) | null;
       agricultor: { nombres: string; apellidos: string; numeroDocumento: string } | null;
       plantas: unknown[];
       eventos: unknown[];
@@ -947,7 +976,7 @@ export async function getLoteDetalle(id: string): Promise<
   const lote = rows[0];
   if (!lote) return null;
 
-  const [predio, agricultor, plantas, eventos, certificado, campanas] = await Promise.all([
+  const [predioBase, agricultor, plantas, eventos, certificado, campanas] = await Promise.all([
     getPredioById(lote.predioId),
     pool
       .query<{ nombres: string; apellidos: string; numeroDocumento: string }>(
@@ -955,14 +984,7 @@ export async function getLoteDetalle(id: string): Promise<
         [lote.agricultorId]
       )
       .then((r) => r.rows[0] ?? null),
-    pool
-      .query(
-        `SELECT id, codigo_planta AS "codigoPlanta", numero_planta AS "numeroPlanta", especie, variedad,
-                latitud, longitud, altitud_msnm AS "altitudMsnm", activo
-         FROM plantas WHERE lote_id = $1 AND activo = true ORDER BY numero_planta::int ASC`,
-        [id]
-      )
-      .then((r) => r.rows),
+    listPlantasByLote(id),
     pool
       .query(
         `SELECT id, tipo_evento AS "tipoEvento", descripcion, fecha_evento AS "fechaEvento",
@@ -987,6 +1009,11 @@ export async function getLoteDetalle(id: string): Promise<
       )
       .then((r) => r.rows),
   ]);
+
+  const propietario = predioBase?.propietarioId
+    ? await getPropietarioById(predioBase.propietarioId)
+    : null;
+  const predio = predioBase ? { ...predioBase, propietario } : null;
 
   return { ...lote, predio, agricultor, plantas, eventos, certificado, campanas };
 }
@@ -1134,35 +1161,96 @@ export async function updateLoteEstado(id: string, estado: string): Promise<Lote
   return lote;
 }
 
-// ── Plantas ──────────────────────────────────────────────────────────────────
+// ── Plantas (pertenecen a la parcela; se vinculan a lotes/cosechas via lote_plantas) ──
 
+const PLANTA_COLUMNS = `
+  p.id,
+  p.parcela_id                    AS "parcelaId",
+  p.codigo_planta                 AS "codigoPlanta",
+  p.numero_planta                 AS "numeroPlanta",
+  p.especie, p.variedad,
+  p.origen_material                AS "origenMaterial",
+  p.procedencia_vivero             AS "procedenciaVivero",
+  p.fecha_siembra                  AS "fechaSiembra",
+  p.altura_cm_inicial              AS "alturaCmInicial",
+  p.diametro_tallo_cm_inicial      AS "diametroTalloCmInicial",
+  p.num_hojas_inicial              AS "numHojasInicial",
+  p.estado_fenologico_inicial      AS "estadoFenologicoInicial",
+  p.latitud, p.longitud,
+  p.altitud_msnm                   AS "altitudMsnm",
+  p.activo
+`;
+
+// "Plantas de este lote" ahora se resuelve via lote_plantas, no por FK directa —
+// mismo nombre/firma que antes, asi que todos los call-sites (vista movil de
+// campanas, validacion de aportes, detalle de lote) quedan corregidos sin tocarlos.
 export async function listPlantasByLote(loteId: string): Promise<Planta[]> {
   const { rows } = await pool.query<Planta>(
-    `SELECT
-       id,
-       lote_id                       AS "loteId",
-       codigo_planta                 AS "codigoPlanta",
-       numero_planta                 AS "numeroPlanta",
-       especie, variedad,
-       origen_material                AS "origenMaterial",
-       procedencia_vivero             AS "procedenciaVivero",
-       fecha_siembra                  AS "fechaSiembra",
-       altura_cm_inicial              AS "alturaCmInicial",
-       diametro_tallo_cm_inicial      AS "diametroTalloCmInicial",
-       num_hojas_inicial              AS "numHojasInicial",
-       estado_fenologico_inicial      AS "estadoFenologicoInicial",
-       latitud, longitud,
-       altitud_msnm                   AS "altitudMsnm"
-     FROM plantas
-     WHERE lote_id = $1 AND activo = true
-     ORDER BY numero_planta::int ASC`,
+    `SELECT ${PLANTA_COLUMNS}
+     FROM plantas p
+     JOIN lote_plantas lp ON lp.planta_id = p.id
+     WHERE lp.lote_id = $1 AND p.activo = true
+     ORDER BY p.numero_planta::int ASC`,
     [loteId]
   );
   return rows;
 }
 
+export async function listPlantasByParcela(
+  parcelaId: string,
+  opts: { especie?: string; soloActivas?: boolean } = {}
+): Promise<Planta[]> {
+  const conds = [`p.parcela_id = $1`];
+  const params: unknown[] = [parcelaId];
+  if (opts.soloActivas !== false) conds.push(`p.activo = true`);
+  if (opts.especie) { params.push(opts.especie); conds.push(`p.especie = $${params.length}`); }
+  const { rows } = await pool.query<Planta>(
+    `SELECT ${PLANTA_COLUMNS} FROM plantas p WHERE ${conds.join(" AND ")} ORDER BY p.numero_planta::int ASC`,
+    params
+  );
+  return rows;
+}
+
+// Estados de lote en los que una planta sigue "comprometida" con ese ciclo —
+// no puede vincularse a un lote nuevo mientras siga en uno de estos.
+const ESTADOS_LOTE_ABIERTO = ["REGISTRADO", "EN_PRODUCCION", "INSPECCION_SOLICITADA", "EN_INSPECCION"];
+
+// Plantas activas de la parcela, de la especie dada, que no estan vinculadas
+// a ningun lote actualmente abierto — candidatas a reusar en un lote nuevo.
+export async function listPlantasDisponiblesParaLote(parcelaId: string, especie: string): Promise<Planta[]> {
+  const { rows } = await pool.query<Planta>(
+    `SELECT ${PLANTA_COLUMNS}
+     FROM plantas p
+     WHERE p.parcela_id = $1 AND p.especie = $2 AND p.activo = true
+       AND NOT EXISTS (
+         SELECT 1 FROM lote_plantas lp
+         JOIN lotes l ON l.id = lp.lote_id
+         WHERE lp.planta_id = p.id AND l.estado = ANY($3)
+       )
+     ORDER BY p.numero_planta::int ASC`,
+    [parcelaId, especie, ESTADOS_LOTE_ABIERTO]
+  );
+  return rows;
+}
+
+export async function getPlantaById(id: string): Promise<
+  (Planta & { lotes: Array<{ loteId: string; codigoLote: string; fechaVinculacion: Date }> }) | null
+> {
+  const { rows } = await pool.query<Planta>(`SELECT ${PLANTA_COLUMNS} FROM plantas p WHERE p.id = $1`, [id]);
+  const planta = rows[0];
+  if (!planta) return null;
+
+  const { rows: lotes } = await pool.query(
+    `SELECT lp.lote_id AS "loteId", l.codigo_lote AS "codigoLote", lp.fecha_vinculacion AS "fechaVinculacion"
+     FROM lote_plantas lp JOIN lotes l ON l.id = lp.lote_id
+     WHERE lp.planta_id = $1 ORDER BY lp.fecha_vinculacion DESC`,
+    [id]
+  );
+  return { ...planta, lotes };
+}
+
 export interface CreatePlantaBody {
-  loteId: string;
+  parcelaId: string;
   codigoPlanta: string;
   numeroPlanta: string;
   latitud: number;
@@ -1180,20 +1268,22 @@ export interface CreatePlantaBody {
   registradoPor: string;
 }
 
+// Crea la planta en la parcela — ya NO la vincula a ningun lote automaticamente
+// (la vinculacion es un paso explicito aparte, ver vincularPlantasALote).
 export async function createPlanta(
   body: CreatePlantaBody
-): Promise<Pick<Planta, "id" | "codigoPlanta" | "numeroPlanta" | "especie" | "latitud" | "longitud">> {
+): Promise<Pick<Planta, "id" | "parcelaId" | "codigoPlanta" | "numeroPlanta" | "especie" | "latitud" | "longitud">> {
   const { rows } = await pool.query(
     `INSERT INTO plantas
-       (lote_id, codigo_planta, numero_planta, latitud, longitud, altitud_msnm,
+       (parcela_id, codigo_planta, numero_planta, latitud, longitud, altitud_msnm,
         especie, variedad, origen_material, procedencia_vivero, fecha_siembra,
         altura_cm_inicial, diametro_tallo_cm_inicial, num_hojas_inicial,
         estado_fenologico_inicial, registrado_por)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
-     RETURNING id, codigo_planta AS "codigoPlanta", numero_planta AS "numeroPlanta",
-               especie, latitud, longitud`,
+     RETURNING id, parcela_id AS "parcelaId", codigo_planta AS "codigoPlanta",
+               numero_planta AS "numeroPlanta", especie, latitud, longitud`,
     [
-      body.loteId,
+      body.parcelaId,
       body.codigoPlanta,
       body.numeroPlanta,
       body.latitud,
@@ -1212,6 +1302,84 @@ export async function createPlanta(
     ]
   );
   return rows[0];
+}
+
+export interface UpdatePlantaFields {
+  especie?: string | null;
+  variedad?: string | null;
+  origenMaterial?: string | null;
+  procedenciaVivero?: string | null;
+  fechaSiembra?: Date | null;
+  alturaCmInicial?: number | null;
+  diametroTalloCmInicial?: number | null;
+  numHojasInicial?: number | null;
+  estadoFenologicoInicial?: string | null;
+  activo?: boolean;
+}
+
+export async function updatePlanta(
+  id: string,
+  fields: UpdatePlantaFields
+): Promise<Planta | null | "no-changes"> {
+  const sets: string[] = [];
+  const params: unknown[] = [];
+
+  if (fields.especie !== undefined) { params.push(fields.especie); sets.push(`especie = $${params.length}`); }
+  if (fields.variedad !== undefined) { params.push(fields.variedad); sets.push(`variedad = $${params.length}`); }
+  if (fields.origenMaterial !== undefined) { params.push(fields.origenMaterial); sets.push(`origen_material = $${params.length}`); }
+  if (fields.procedenciaVivero !== undefined) { params.push(fields.procedenciaVivero); sets.push(`procedencia_vivero = $${params.length}`); }
+  if (fields.fechaSiembra !== undefined) { params.push(fields.fechaSiembra); sets.push(`fecha_siembra = $${params.length}`); }
+  if (fields.alturaCmInicial !== undefined) { params.push(fields.alturaCmInicial); sets.push(`altura_cm_inicial = $${params.length}`); }
+  if (fields.diametroTalloCmInicial !== undefined) { params.push(fields.diametroTalloCmInicial); sets.push(`diametro_tallo_cm_inicial = $${params.length}`); }
+  if (fields.numHojasInicial !== undefined) { params.push(fields.numHojasInicial); sets.push(`num_hojas_inicial = $${params.length}`); }
+  if (fields.estadoFenologicoInicial !== undefined) { params.push(fields.estadoFenologicoInicial); sets.push(`estado_fenologico_inicial = $${params.length}`); }
+  if (fields.activo !== undefined) { params.push(fields.activo); sets.push(`activo = $${params.length}`); }
+
+  if (sets.length === 0) return "no-changes";
+
+  params.push(id);
+  await pool.query(
+    `UPDATE plantas SET ${sets.join(", ")} WHERE id = $${params.length}`,
+    params
+  );
+  const { rows } = await pool.query<Planta>(`SELECT ${PLANTA_COLUMNS} FROM plantas p WHERE p.id = $1`, [id]);
+  return rows[0] ?? null;
+}
+
+export interface VincularPlantasResult {
+  vinculadas: string[];
+  yaEnOtroLoteAbierto: string[];
+}
+
+// Vincula un lote de plantas existentes a un lote (batch). Si alguna ya esta
+// vinculada a OTRO lote abierto, se excluye del INSERT y se reporta —
+// no aborta toda la operacion, el caller decide como comunicarlo.
+export async function vincularPlantasALote(params: {
+  loteId: string;
+  plantaIds: string[];
+  vinculadoPor: string;
+}): Promise<VincularPlantasResult> {
+  if (params.plantaIds.length === 0) return { vinculadas: [], yaEnOtroLoteAbierto: [] };
+
+  const { rows: ocupadas } = await pool.query<{ plantaId: string }>(
+    `SELECT DISTINCT lp.planta_id AS "plantaId"
+     FROM lote_plantas lp JOIN lotes l ON l.id = lp.lote_id
+     WHERE lp.planta_id = ANY($1) AND lp.lote_id != $2 AND l.estado = ANY($3)`,
+    [params.plantaIds, params.loteId, ESTADOS_LOTE_ABIERTO]
+  );
+  const ocupadasSet = new Set(ocupadas.map((o) => o.plantaId));
+  const disponibles = params.plantaIds.filter((id) => !ocupadasSet.has(id));
+
+  if (disponibles.length > 0) {
+    await pool.query(
+      `INSERT INTO lote_plantas (lote_id, planta_id, vinculado_por)
+       SELECT $1, unnest($2::uuid[]), $3
+       ON CONFLICT (lote_id, planta_id) DO NOTHING`,
+      [params.loteId, disponibles, params.vinculadoPor]
+    );
+  }
+
+  return { vinculadas: disponibles, yaEnOtroLoteAbierto: [...ocupadasSet] };
 }
 
 // ── Eventos de produccion ────────────────────────────────────────────────────
@@ -1913,7 +2081,7 @@ export async function getLoteParaInforme(loteId: string): Promise<unknown | null
         )
         .then((r) => r.rows[0] ?? null),
       pool.query(`SELECT ${CERTIFICADO_COLUMNS} FROM certificados c WHERE c.lote_id = $1`, [loteId]).then((r) => r.rows[0] ?? null),
-      pool.query(`SELECT count(*)::int AS n FROM plantas WHERE lote_id = $1`, [loteId]).then((r) => r.rows[0].n),
+      pool.query(`SELECT count(*)::int AS n FROM lote_plantas WHERE lote_id = $1`, [loteId]).then((r) => r.rows[0].n),
       pool.query(`SELECT count(*)::int AS n FROM eventos_produccion WHERE lote_id = $1`, [loteId]).then((r) => r.rows[0].n),
       pool
         .query(

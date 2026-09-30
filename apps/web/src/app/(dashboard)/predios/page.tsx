@@ -1,9 +1,8 @@
 export const dynamic = "force-dynamic";
-import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { getSession } from "@/lib/auth";
 import { NuevoPredioForm } from "./NuevoPredioForm";
-import { EditarPredioBtn } from "./EditarPredioBtn";
+import { PrediosTabla } from "./PrediosTabla";
 
 interface PredioItem {
   id: string;
@@ -61,61 +60,7 @@ export default async function PrediosPage() {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-100 bg-gray-50">
-              <th className="text-left px-4 py-3 font-medium text-gray-500">Código</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-500">Predio</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-500">Propietario</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-500">Ubicación</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-500">Área total</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-500">Lotes</th>
-              {session?.rol === "ADMIN" && (
-                <th className="text-left px-4 py-3 font-medium text-gray-500">Acciones</th>
-              )}
-              <th className="px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {predios.map((p) => (
-              <tr key={p.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 font-mono text-xs font-semibold text-gray-700">{p.codigoPredio}</td>
-                <td className="px-4 py-3 font-medium text-gray-900">{p.nombrePredio}</td>
-                <td className="px-4 py-3 text-gray-600">
-                  {p.propietario ? `${p.propietario.nombres} ${p.propietario.apellidos}` : "—"}
-                  {p.agricultor && (
-                    <p className="text-[11px] text-gray-400">Operador: {p.agricultor.nombres} {p.agricultor.apellidos}</p>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-gray-500">
-                  {p.municipioNombre ?? p.municipio}, {p.departamentoNombre ?? p.departamento}
-                  {p.vereda ? ` · ${p.vereda}` : ""}
-                </td>
-                <td className="px-4 py-3 text-gray-600">{p.areaTotalHa} ha</td>
-                <td className="px-4 py-3 text-gray-600">{p.totalLotes}</td>
-                {session?.rol === "ADMIN" && (
-                  <td className="px-4 py-3">
-                    <EditarPredioBtn predio={p} />
-                  </td>
-                )}
-                <td className="px-4 py-3 text-right">
-                  <Link href={`/predios/${p.id}`} className="text-xs text-verde-500 hover:text-verde-600 font-medium">
-                    Ver detalle →
-                  </Link>
-                </td>
-              </tr>
-            ))}
-            {predios.length === 0 && !error && (
-              <tr>
-                <td colSpan={session?.rol === "ADMIN" ? 8 : 7} className="px-4 py-12 text-center text-gray-400">
-                  Sin predios registrados
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <PrediosTabla predios={predios} esAdmin={session?.rol === "ADMIN"} />
     </div>
   );
 }

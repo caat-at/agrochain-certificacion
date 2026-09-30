@@ -44,6 +44,11 @@ export interface LoteResumen {
   parcelaCodigo: string | null;
   especie: string;
   variedad: string | null;
+  fechaCosechaEst: string | null;
+  fechaCosechaReal: string | null;
+  volumenCosechaKg: number | null;
+  destinoProduccion: string | null;
+  sistemaRiego: string | null;
   estadoLote: EstadoLote;
   dataHash: string | null;
   agricultor?: { nombre: string };

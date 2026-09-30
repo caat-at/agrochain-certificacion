@@ -9,6 +9,7 @@ import RegistrarBlockchainBtn from "./RegistrarBlockchainBtn";
 import { DescargarPdfBtn } from "./DescargarPdfBtn";
 import { PlantasGrid, type PlantaLote } from "./PlantasGrid";
 import { NuevaPlantaForm } from "./NuevaPlantaForm";
+import { VincularPlantaBtn } from "./VincularPlantaBtn";
 import { NuevoEventoForm } from "./NuevoEventoForm";
 import { EditarLoteBtn } from "../EditarLoteBtn";
 import { EudrSeccion, type EudrEstadoLote } from "./EudrSeccion";
@@ -30,6 +31,7 @@ interface CampanaLote {
 interface LoteDetalle {
   id: string;
   codigoLote: string;
+  parcelaId: string;
   especie: string;
   variedad: string | null;
   areaHa: number;
@@ -59,6 +61,7 @@ interface LoteDetalle {
     tieneAguaPotable: boolean;
     tieneSSSBasicas: boolean;
     tieneZonaAcopio: boolean;
+    propietario: { nombres: string; apellidos: string; numeroDocumento: string } | null;
   };
   agricultor: { nombres: string; apellidos: string; numeroDocumento: string };
   eventos: Array<{
@@ -249,7 +252,10 @@ export default async function LoteDetallePage({
                 Plantas
                 <span className="ml-2 text-xs font-normal text-gray-400">({plantas.length})</span>
               </h2>
-              <NuevaPlantaForm loteId={lote.id} />
+              <div className="flex items-center gap-3">
+                <VincularPlantaBtn loteId={lote.id} parcelaId={lote.parcelaId} especie={lote.especie} />
+                <NuevaPlantaForm loteId={lote.id} />
+              </div>
             </div>
             <PlantasGrid plantas={plantas} />
           </div>
@@ -329,20 +335,29 @@ export default async function LoteDetallePage({
 
         {/* Columna derecha */}
         <div className="space-y-6">
-          {/* Agricultor */}
+          {/* Propietario — dueño legal del predio */}
           <div className="card">
-            <h2 className="font-semibold text-gray-800 mb-3">Agricultor</h2>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-verde-50 rounded-full flex items-center justify-center text-verde-500 font-semibold">
-                {lote.agricultor.nombres.charAt(0)}
+            <h2 className="font-semibold text-gray-800 mb-3">Propietario</h2>
+            {lote.predio.propietario ? (
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-verde-50 rounded-full flex items-center justify-center text-verde-500 font-semibold">
+                  {lote.predio.propietario.nombres.charAt(0)}
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-900">
+                    {lote.predio.propietario.nombres} {lote.predio.propietario.apellidos}
+                  </p>
+                  <p className="text-xs text-gray-400">CC {lote.predio.propietario.numeroDocumento}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-medium text-gray-900">
-                  {lote.agricultor.nombres} {lote.agricultor.apellidos}
-                </p>
-                <p className="text-xs text-gray-400">CC {lote.agricultor.numeroDocumento}</p>
-              </div>
-            </div>
+            ) : (
+              <p className="text-xs text-gray-400">Este predio no tiene propietario asignado.</p>
+            )}
+            {lote.agricultor && (
+              <p className="text-xs text-gray-400 mt-3 pt-3 border-t border-gray-100">
+                Operado en el sistema por {lote.agricultor.nombres} {lote.agricultor.apellidos}
+              </p>
+            )}
           </div>
 
           {/* Informe PDF */}

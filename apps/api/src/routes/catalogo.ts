@@ -3,7 +3,7 @@
  * usado por los selects encadenados de los formularios de predio.
  */
 import type { FastifyInstance } from "fastify";
-import { listPaises, listDepartamentos, listMunicipios } from "@agrochain/database";
+import { listPaises, listDepartamentos, listMunicipios, listEspecies } from "@agrochain/database";
 
 export async function catalogoRoutes(app: FastifyInstance) {
   app.get("/paises", async () => {
@@ -21,5 +21,13 @@ export async function catalogoRoutes(app: FastifyInstance) {
     const { departamento } = request.query as { departamento?: string };
     const municipios = await listMunicipios(departamento);
     return { municipios };
+  });
+
+  // Catalogo de especies con tipo de ciclo (PERENNE/ANUAL) — usado por el
+  // formulario de lote para decidir si sugerir reuso de plantas existentes.
+  app.get("/especies", async (request) => {
+    const { tipoCiclo } = request.query as { tipoCiclo?: "PERENNE" | "ANUAL" };
+    const especies = await listEspecies(tipoCiclo);
+    return { especies };
   });
 }

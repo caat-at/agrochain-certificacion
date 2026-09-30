@@ -66,6 +66,12 @@ const GridIcon = () => (
       d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z" />
   </svg>
 );
+const SproutIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+      d="M12 22v-9m0 0c0-4-3-7-7-7 0 4 3 7 7 7zm0 0c0-4 3-7 7-7 0 4-3 7-7 7z" />
+  </svg>
+);
 
 const NAV: NavItem[] = [
   {
@@ -90,6 +96,12 @@ const NAV: NavItem[] = [
     href: "/parcelas",
     label: "Parcelas",
     icon: <GridIcon />,
+    roles: ["ADMIN", "AGRICULTOR", "CERTIFICADORA"],
+  },
+  {
+    href: "/plantas",
+    label: "Plantas",
+    icon: <SproutIcon />,
     roles: ["ADMIN", "AGRICULTOR", "CERTIFICADORA"],
   },
   {

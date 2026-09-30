@@ -39,6 +39,8 @@ export type {
   Municipio,
   Lote,
   Planta,
+  Especie,
+  LotePlanta,
   EventoProduccion,
   Inspeccion,
   Certificado,

@@ -14,6 +14,7 @@ import {
   updateLoteBlockchainTx,
   listPlantasByLote,
   createPlanta,
+  vincularPlantasALote,
   getParcelaById,
   getPredioById,
 } from "@agrochain/database";
@@ -66,6 +67,9 @@ export async function lotesRoutes(app: FastifyInstance) {
         variedad:         l.variedad,
         areaHa:           l.areaHa,
         fechaSiembra:     l.fechaSiembra ? new Date(l.fechaSiembra).toISOString() : null,
+        fechaCosechaEst:  l.fechaCosechaEst ? new Date(l.fechaCosechaEst).toISOString() : null,
+        fechaCosechaReal: l.fechaCosechaReal ? new Date(l.fechaCosechaReal).toISOString() : null,
+        volumenCosechaKg: l.volumenCosechaKg,
         destinoProduccion:l.destinoProduccion,
         sistemaRiego:     l.sistemaRiego,
         estadoLote:       l.estado,
@@ -164,7 +168,10 @@ export async function lotesRoutes(app: FastifyInstance) {
     };
   });
 
-  // POST /api/lotes/:loteId/plantas — registrar planta desde móvil (NTC 5400 / ICA)
+  // POST /api/lotes/:loteId/plantas — crea una planta NUEVA en la parcela de
+  // este lote y la vincula al lote en el mismo paso (compatibilidad con el
+  // flujo existente NTC 5400/ICA). Para reusar plantas ya existentes de la
+  // parcela (cultivos perennes), usar POST /:id/plantas/vincular.
   app.post<{ Params: { id: string }; Body: {
     codigoPlanta: string;
     numeroPlanta: string;
@@ -193,9 +200,12 @@ export async function lotesRoutes(app: FastifyInstance) {
       return reply.status(400).send({ success: false, error: "Faltan campos requeridos" });
     }
 
+    const lote = await getLoteById(request.params.id);
+    if (!lote) return reply.status(404).send({ success: false, error: "Lote no encontrado" });
+
     try {
       const planta = await createPlanta({
-        loteId:                  request.params.id,
+        parcelaId:               lote.parcelaId,
         codigoPlanta,
         numeroPlanta,
         latitud,
@@ -212,15 +222,44 @@ export async function lotesRoutes(app: FastifyInstance) {
         estadoFenologicoInicial: estadoFenologicoInicial ?? null,
         registradoPor:           payload.sub,
       });
+      await vincularPlantasALote({ loteId: request.params.id, plantaIds: [planta.id], vinculadoPor: payload.sub });
       return reply.status(201).send({ success: true, planta });
     } catch (err: any) {
       if (err?.code === "23505") {
         // unique_violation en Postgres (equivalente al P2002 de Prisma)
-        return reply.status(409).send({ success: false, error: "Ya existe una planta con ese código en este lote" });
+        return reply.status(409).send({ success: false, error: "Ya existe una planta con ese código en esta parcela" });
       }
       return reply.status(500).send({ success: false, error: "Error al registrar planta" });
     }
   });
+
+  // POST /api/lotes/:id/plantas/vincular — vincula plantas EXISTENTES de la
+  // parcela a este lote (reuso en cultivos perennes: la planta ya vive en la
+  // parcela y participa en un nuevo ciclo de cosecha sin recrearse).
+  app.post<{ Params: { id: string }; Body: { plantaIds: string[] } }>(
+    "/:id/plantas/vincular",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
+      const payload = (request as any).user as { sub: string; rol: string };
+      const { plantaIds } = request.body;
+      if (!Array.isArray(plantaIds) || plantaIds.length === 0) {
+        return reply.status(400).send({ success: false, error: "plantaIds debe ser un arreglo no vacío" });
+      }
+
+      const lote = await getLoteById(request.params.id);
+      if (!lote) return reply.status(404).send({ success: false, error: "Lote no encontrado" });
+
+      if (payload.rol === "AGRICULTOR") {
+        const predio = await getPredioById((await getParcelaById(lote.parcelaId))?.predioId ?? "");
+        if (!predio || predio.agricultorId !== payload.sub) {
+          return reply.status(403).send({ success: false, error: "Un agricultor solo puede vincular plantas en lotes de predios propios" });
+        }
+      }
+
+      const resultado = await vincularPlantasALote({ loteId: request.params.id, plantaIds, vinculadoPor: payload.sub });
+      return reply.status(200).send({ success: true, ...resultado });
+    }
+  );
 
   // POST /api/lotes/:id/registrar-blockchain — registrar lote en Polygon
   app.post<{ Params: { id: string } }>(

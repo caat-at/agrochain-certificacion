@@ -10,6 +10,7 @@ import {
   listPlantasByLote,
   listCampanas,
   getCampanaById,
+  updateCampana,
   getCampanaParaCierreAutomatico,
   createCampana,
   getCampanaActivaOAbiertaPorLote,
@@ -66,6 +67,12 @@ const AsignarTecnicoSchema = z.object({
   posicion:       z.number().int().min(1).max(4),
   tecnicoId:      z.string(),
   camposAsignados: z.array(z.string()).min(1),
+});
+
+const EditarCampanaSchema = z.object({
+  nombre:           z.string().min(1).optional(),
+  descripcion:      z.string().nullable().optional(),
+  camposRequeridos: z.array(z.string()).min(1).optional(),
 });
 
 const AporteTecnicoSchema = z.object({
@@ -171,6 +178,42 @@ export async function campanasRoutes(app: FastifyInstance) {
       },
     };
   });
+
+  // ── PATCH /api/campanas/:id — editar (solo ADMIN) ────────────────────────
+  // Nombre y descripcion se pueden editar siempre. camposRequeridos solo si
+  // la campaña sigue ACTIVA (antes de que cualquier tecnico haya capturado
+  // datos), para no desalinear el criterio de "completo" de aportes ya hechos.
+  app.patch<{ Params: { id: string } }>(
+    "/:id",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
+      const payload = (request as any).user as { sub: string; rol: string };
+      if (payload.rol !== "ADMIN") {
+        return reply.status(403).send({ message: "Solo el ADMIN puede editar campañas" });
+      }
+
+      const parsed = EditarCampanaSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({ message: "Datos inválidos", errors: parsed.error.flatten().fieldErrors });
+      }
+
+      const existente = await getCampanaById(request.params.id);
+      if (!existente) {
+        return reply.status(404).send({ message: "Campaña no encontrada" });
+      }
+
+      const data = parsed.data;
+      if (data.camposRequeridos !== undefined && existente.estado !== "ACTIVA") {
+        return reply.status(409).send({ message: "Los campos requeridos solo se pueden editar mientras la campaña está ACTIVA (sin abrir)" });
+      }
+
+      const actualizada = await updateCampana(request.params.id, data);
+      if (actualizada === "no-changes") {
+        return { success: true, campana: existente };
+      }
+      return { success: true, campana: actualizada };
+    }
+  );
 
   // ── PUT /api/campanas/:id/estado ─────────────────────────────────────────
   // ADMIN cambia estado: ACTIVA → ABIERTA o cierre manual ABIERTA → CERRADA

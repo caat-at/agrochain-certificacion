@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { fetchEspecies, type EspecieOpcion } from "@/lib/catalogoEspecies";
 
 interface PredioOpcion {
   id: string;
@@ -15,6 +16,12 @@ interface ParcelaOpcion {
   codigoParcela: string;
   nombre: string | null;
   areaHa: number;
+}
+
+interface PlantaDisponible {
+  id: string;
+  codigoPlanta: string;
+  numeroPlanta: string;
 }
 
 const DESTINOS = [
@@ -32,6 +39,10 @@ export function NuevoLoteForm() {
   const [predios, setPredios] = useState<PredioOpcion[]>([]);
   const [parcelas, setParcelas] = useState<ParcelaOpcion[]>([]);
   const [cargandoParcelas, setCargandoParcelas] = useState(false);
+  const [especies, setEspecies] = useState<EspecieOpcion[]>([]);
+  const [plantasDisponibles, setPlantasDisponibles] = useState<PlantaDisponible[]>([]);
+  const [plantasSeleccionadas, setPlantasSeleccionadas] = useState<Set<string>>(new Set());
+  const [cargandoPlantas, setCargandoPlantas] = useState(false);
 
   const [predioId, setPredioId] = useState("");
   const [parcelaId, setParcelaId] = useState("");
@@ -51,6 +62,7 @@ export function NuevoLoteForm() {
       .then((r) => r.json())
       .then((data) => setPredios(data.predios ?? []))
       .catch(() => setPredios([]));
+    fetchEspecies().then(setEspecies).catch(() => setEspecies([]));
   }, [abierto]);
 
   useEffect(() => {
@@ -62,6 +74,30 @@ export function NuevoLoteForm() {
       .catch(() => setParcelas([]))
       .finally(() => setCargandoParcelas(false));
   }, [predioId]);
+
+  // Especie perenne (cafe, cacao, ...) + parcela elegida -> ofrecer reusar
+  // plantas ya sembradas en esa parcela en vez de crear plantas nuevas.
+  const especieElegida = especies.find((e) => e.nombreCientifico === especie);
+  const esPerenne = especieElegida?.tipoCiclo === "PERENNE";
+
+  useEffect(() => {
+    setPlantasSeleccionadas(new Set());
+    if (!parcelaId || !especie || !esPerenne) { setPlantasDisponibles([]); return; }
+    setCargandoPlantas(true);
+    fetch(`/api/parcelas/${parcelaId}/plantas-disponibles?especie=${encodeURIComponent(especie)}`)
+      .then((r) => r.json())
+      .then((data) => setPlantasDisponibles(data.plantas ?? []))
+      .catch(() => setPlantasDisponibles([]))
+      .finally(() => setCargandoPlantas(false));
+  }, [parcelaId, especie, esPerenne]);
+
+  function togglePlanta(id: string) {
+    setPlantasSeleccionadas((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   function handleClose() {
     setAbierto(false);
@@ -75,6 +111,8 @@ export function NuevoLoteForm() {
     setDestinoProduccion("");
     setCodigoDepartamento("");
     setDepartamentoNombre("");
+    setPlantasDisponibles([]);
+    setPlantasSeleccionadas(new Set());
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -110,6 +148,16 @@ export function NuevoLoteForm() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ? JSON.stringify(data.error) : data.message ?? `HTTP ${res.status}`);
+
+      if (plantasSeleccionadas.size > 0) {
+        const loteId = data.data.id;
+        await fetch(`/api/lotes/${loteId}/plantas/vincular`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ plantaIds: [...plantasSeleccionadas] }),
+        });
+      }
+
       handleClose();
       router.refresh();
     } catch (e) {
@@ -198,13 +246,49 @@ export function NuevoLoteForm() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">Especie</label>
-              <input className="input" value={especie} onChange={(e) => setEspecie(e.target.value)} placeholder="Coffea arabica" />
+              <select className="input" value={especie} onChange={(e) => setEspecie(e.target.value)}>
+                <option value="">— Seleccionar especie —</option>
+                {especies.map((e) => (
+                  <option key={e.id} value={e.nombreCientifico}>{e.nombreComun} ({e.nombreCientifico})</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="label">Variedad</label>
               <input className="input" value={variedad} onChange={(e) => setVariedad(e.target.value)} placeholder="Castillo" />
             </div>
           </div>
+
+          {esPerenne && parcelaId && (
+            <div className="rounded-lg border border-verde-200 bg-verde-50/40 p-4 space-y-2.5">
+              <p className="text-xs font-semibold text-verde-800">
+                Especie perenne — puedes reusar plantas ya sembradas en esta parcela
+              </p>
+              {cargandoPlantas ? (
+                <p className="text-xs text-gray-400">Buscando plantas disponibles…</p>
+              ) : plantasDisponibles.length === 0 ? (
+                <p className="text-xs text-gray-400">No hay plantas disponibles de esta especie en la parcela — se creará el lote sin vincular ninguna.</p>
+              ) : (
+                <>
+                  <p className="text-xs text-gray-500">
+                    Se encontraron {plantasDisponibles.length} planta(s) de esta especie en la parcela. Selecciona cuáles vincular a este lote:
+                  </p>
+                  <div className="max-h-32 overflow-y-auto space-y-1">
+                    {plantasDisponibles.map((p) => (
+                      <label key={p.id} className="flex items-center gap-2 text-xs text-gray-700">
+                        <input
+                          type="checkbox"
+                          checked={plantasSeleccionadas.has(p.id)}
+                          onChange={() => togglePlanta(p.id)}
+                        />
+                        <span className="font-mono">{p.codigoPlanta}</span> — planta N° {p.numeroPlanta}
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
