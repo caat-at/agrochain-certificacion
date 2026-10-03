@@ -36,13 +36,16 @@ ALTER TABLE departamentos ALTER COLUMN pais_cod SET DEFAULT 'COL';
 ALTER TABLE predios ADD COLUMN IF NOT EXISTS departamento_cod varchar(5) REFERENCES departamentos(codigo);
 ALTER TABLE predios ADD COLUMN IF NOT EXISTS municipio_cod varchar(10) REFERENCES municipios(codigo);
 
--- Sonson (Antioquia) no estaba en el seed base (solo municipios con vocacion
--- agricola principal ya incluidos) -- se agrega con su codigo DANE real.
-INSERT INTO municipios (codigo, nombre, departamento_cod)
-VALUES ('05756', 'Sonson', '05')
-ON CONFLICT DO NOTHING;
+-- Los municipios (incluido Sonson 05756) los carga 10_divipola_completo.sql,
+-- que corre justo despues de este script. Antes se insertaba '05756' aqui y
+-- eso abortaba el initdb en una base nueva: FK municipios_departamento_cod_fkey
+-- porque departamentos aun estaba vacia (solo la puebla el seed, que corre al
+-- final, despues del initdb).
 
 -- Mapeo manual de los 3 predios reales existentes a codigos DANE validos.
+-- OJO: estos UPDATE son no-op en una base recien creada (predios vacia). Sobre
+-- una base que ya tenga predios fallarian por FK, porque a este punto
+-- departamentos todavia no tiene filas.
 -- Nota: "Finca El Paraiso" tenia municipio='05615' en el dato viejo (texto
 -- libre/codigo crudo), pero 05615 en el catalogo real es Rionegro, no lo que
 -- se pretendia originalmente -- se deja apuntando a Rionegro (05615) porque
