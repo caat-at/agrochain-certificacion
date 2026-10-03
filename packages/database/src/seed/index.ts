@@ -1,4 +1,5 @@
 import pool from "../db/client.js";
+import { generarCodigoPredio } from "../lib/hash.js";
 import { numeralesNtc5400 } from "./numerales-ntc5400.js";
 import { departamentos, municipios } from "./departamentos-colombia.js";
 import { stbnSubcriterios } from "./stbn-subcriterios.js";
@@ -174,8 +175,8 @@ async function seed() {
       `INSERT INTO predios
          (agricultor_id, nombre_predio, codigo_ica, departamento, municipio, vereda,
           latitud, longitud, altitud_msnm, area_total_ha, area_productiva_ha,
-          fuente_agua, tipo_suelo, uso_previo)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+          fuente_agua, tipo_suelo, uso_previo, codigo_predio)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        ON CONFLICT (codigo_ica) DO UPDATE SET nombre_predio = EXCLUDED.nombre_predio
        RETURNING id`,
       [
@@ -193,6 +194,7 @@ async function seed() {
         "RIO",
         "Franco arcilloso",
         "Pastizal",
+        generarCodigoPredio("05615", 1),
       ]
     )
     .then((r) => r.rows[0].id as string);
@@ -279,14 +281,15 @@ async function seed() {
       `INSERT INTO plantas
          (lote_id, codigo_planta, numero_planta, especie, variedad, origen_material, procedencia_vivero,
           fecha_siembra, altura_cm_inicial, diametro_tallo_cm_inicial, num_hojas_inicial,
-          estado_fenologico_inicial, latitud, longitud, altitud_msnm, registrado_por, activo)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,true)
-       ON CONFLICT (lote_id, codigo_planta) DO NOTHING`,
+          estado_fenologico_inicial, latitud, longitud, altitud_msnm, registrado_por, activo, parcela_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,true,$17)
+       ON CONFLICT (parcela_id, codigo_planta) DO NOTHING`,
       [
         lote1Id, `COL-05-2024-00001-P${num}`, String(i), "Coffea arabica", "Castillo Colombia",
         "VIVERO_CERTIFICADO", "Vivero Agroforestal Antioquia — Reg. ICA 2024-VIV-001",
         "2024-03-01", 30.0 + i * 0.5, 0.7 + i * 0.02, 5 + (i % 4), "Plántula",
         6.154 + i * 0.0001, -75.374 - i * 0.0001, 2148.0 + i * 0.5, adminId,
+        parcela1Id,
       ]
     );
   }
@@ -300,14 +303,15 @@ async function seed() {
       `INSERT INTO plantas
          (lote_id, codigo_planta, numero_planta, especie, variedad, origen_material, procedencia_vivero,
           fecha_siembra, altura_cm_inicial, diametro_tallo_cm_inicial, num_hojas_inicial,
-          estado_fenologico_inicial, latitud, longitud, altitud_msnm, registrado_por, activo)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,true)
-       ON CONFLICT (lote_id, codigo_planta) DO NOTHING`,
+          estado_fenologico_inicial, latitud, longitud, altitud_msnm, registrado_por, activo, parcela_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,true,$17)
+       ON CONFLICT (parcela_id, codigo_planta) DO NOTHING`,
       [
         lote2Id, `COL-05-2024-00002-P${num}`, String(i), "Persea americana", "Hass",
         "INJERTO", "Vivero El Aguacatal — Reg. ICA 2024-VIV-045",
         "2024-05-15", 44.0 + i * 0.5, 1.1 + i * 0.03, 7 + (i % 3), "Trasplante",
         6.155 + i * 0.0001, -75.3752 - i * 0.0001, 2152.0 + i * 0.5, adminId,
+        parcela2Id,
       ]
     );
   }
