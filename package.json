@@ -7,6 +7,7 @@
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
+    "db:migrate": "pnpm --filter @agrochain/database db:migrate",
     "db:seed": "pnpm --filter @agrochain/database db:seed"
   },
   "devDependencies": {
