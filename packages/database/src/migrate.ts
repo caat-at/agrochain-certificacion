@@ -33,6 +33,18 @@ function listarMigraciones(): Migracion[] {
     });
 }
 
+function numeroArchivo(archivo: string): number {
+  const n = Number.parseInt(archivo.slice(0, 2), 10);
+  return Number.isNaN(n) ? 0 : n;
+}
+
+function parseBaseline(argv: string[]): number | null {
+  const flag = argv.find((a) => a.startsWith("--baseline="));
+  if (!flag) return null;
+  const n = Number.parseInt(flag.slice("--baseline=".length), 10);
+  return Number.isNaN(n) ? null : n;
+}
+
 async function ensureTablaMigraciones(): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -82,7 +94,7 @@ function detectarDrift(
   );
 }
 
-async function migrate(dryRun: boolean): Promise<void> {
+async function migrate(dryRun: boolean, baseline: number | null): Promise<void> {
   console.log("🔧 Iniciando migraciones de AgroChain...\n");
 
   const migraciones = listarMigraciones();
@@ -96,29 +108,47 @@ async function migrate(dryRun: boolean): Promise<void> {
   await ensureTablaMigraciones();
   let aplicadas = await obtenerAplicadas();
 
-  // ── BOOTSTRAP ────────────────────────────────────────────────────────────
-  // El Postgres local aplica los .sql por docker-entrypoint-initdb.d y no
-  // deja registro. Si el esquema ya existe pero schema_migrations esta
-  // vacia, adoptamos esos archivos como ya aplicados en vez de re-ejecutarlos
-  // (00_schema.sql usa CREATE TABLE sin IF NOT EXISTS y no correria dos veces).
+  // ── BASELINE ─────────────────────────────────────────────────────────────
+  // Un volumen creado por docker-entrypoint-initdb.d NO deja registro. Si el
+  // esquema existe pero schema_migrations esta vacia, no se puede saber que
+  // archivos se aplicaron: ese volumen puede estar en 00-06 y necesitar 07-13.
+  // Adivinar deja la base rota en silencio, asi que se exige que el operador
+  // declare el estado en vez de suponerlo.
   if (aplicadas.length === 0 && (await contarTablasDeNegocio()) > 0) {
+    if (baseline === null) {
+      console.error(
+        "\n   ⛔ La base tiene tablas pero schema_migrations está vacía."
+      );
+      console.error(
+        "      No se puede inferir qué archivos se aplicaron. Un volumen viejo"
+      );
+      console.error(
+        "      puede estar en 00-06 y necesitar 07-13; asumirlo lo deja roto."
+      );
+      console.error("");
+      console.error("      Indicá el estado real y reintentá:");
+      console.error(
+        "        pnpm db:migrate --baseline=06   # registra 00..06 sin ejecutarlos"
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    const hasta = migraciones.filter((m) => numeroArchivo(m.archivo) <= baseline);
     console.log(
-      "\n   ℹ️  El esquema ya existe pero no hay registro de migraciones."
-    );
-    console.log(
-      "      Asumiendo que docker-entrypoint-initdb.d aplicó estos archivos."
+      `\n   ℹ️  Baseline ${String(baseline).padStart(2, "0")}: ${hasta.length} archivos registrados SIN ejecutarse.`
     );
     if (dryRun) {
-      console.log(
-        `      En modo --dry-run NO se registran. Aplicarías ${migraciones.length} archivos.`
-      );
+      console.log("      (--dry-run: no se registran nada)");
     } else {
-      for (const m of migraciones) await registrar(m.archivo, m.checksum);
+      for (const m of hasta) await registrar(m.archivo, m.checksum);
       aplicadas = await obtenerAplicadas();
-      console.log(
-        `      ✅ ${aplicadas.length} archivos adoptados como aplicados.`
-      );
+      console.log(`      ✅ Baseline registrado. Quedan por aplicar los siguientes.`);
     }
+  } else if (baseline !== null && aplicadas.length === 0) {
+    console.log(
+      "\n   ℹ️  --baseline ignorado: la base está vacía, se aplicarán todos los archivos."
+    );
   }
 
   // ── DRIFT ────────────────────────────────────────────────────────────────
@@ -174,8 +204,14 @@ async function migrate(dryRun: boolean): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const dryRun = process.argv.includes("--dry-run") || process.argv.includes("-n");
-  await migrate(dryRun);
+  const argv = process.argv.slice(2);
+  const dryRun = argv.includes("--dry-run") || argv.includes("-n");
+  const baseline = parseBaseline(argv);
+  console.log(
+    "  --dry-run    lista pendientes sin tocar la base\n" +
+      "  --baseline=N registra 00..N como aplicados SIN ejecutarlos\n"
+  );
+  await migrate(dryRun, baseline);
 }
 
 main()
