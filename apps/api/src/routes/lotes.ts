@@ -89,11 +89,15 @@ export async function lotesRoutes(app: FastifyInstance) {
   });
 
   // GET /api/lotes/:id
-  app.get<{ Params: { id: string } }>("/:id", async (request, reply) => {
+  app.get<{ Params: { id: string } }>(
+    "/:id",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
     const lote = await getLoteDetalle(request.params.id);
     if (!lote) return reply.status(404).send({ success: false, error: "Lote no encontrado" });
     return { success: true, data: lote };
-  });
+    }
+  );
 
   // POST /api/lotes — crear (ADMIN cualquiera, AGRICULTOR solo en parcelas de predios propios)
   app.post<{ Body: z.infer<typeof CrearLoteSchema> }>(
@@ -304,11 +308,15 @@ export async function lotesRoutes(app: FastifyInstance) {
   );
 
   // GET /api/lotes/codigo/:codigo - buscar por codigo de lote
-  app.get<{ Params: { codigo: string } }>("/codigo/:codigo", async (request, reply) => {
+  app.get<{ Params: { codigo: string } }>(
+    "/codigo/:codigo",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
     const lote = await getLoteConDetalleByCodigo(request.params.codigo);
     if (!lote) return reply.status(404).send({ success: false, error: "Lote no encontrado" });
     return { success: true, data: lote };
-  });
+    }
+  );
 
   // PATCH /api/lotes/:id — editar (no permite cambiar estado ni codigoLote,
   // que tienen su propio flujo dedicado)

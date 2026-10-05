@@ -10,7 +10,10 @@ const EventoQuerySchema = z.object({
 
 export async function eventosRoutes(app: FastifyInstance) {
   // GET /api/eventos?loteId=&plantaId=&tipo=
-  app.get<{ Querystring: z.infer<typeof EventoQuerySchema> }>("/", async (request, reply) => {
+  app.get<{ Querystring: z.infer<typeof EventoQuerySchema> }>(
+    "/",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
     const query = EventoQuerySchema.safeParse(request.query);
     if (!query.success) {
       return reply.status(400).send({ success: false, error: query.error.flatten() });
@@ -24,12 +27,17 @@ export async function eventosRoutes(app: FastifyInstance) {
     });
 
     return { success: true, data: eventos };
-  });
+    }
+  );
 
   // GET /api/eventos/:id
-  app.get<{ Params: { id: string } }>("/:id", async (request, reply) => {
+  app.get<{ Params: { id: string } }>(
+    "/:id",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
     const evento = await getEventoProduccionDetalle(request.params.id);
     if (!evento) return reply.status(404).send({ success: false, error: "Evento no encontrado" });
     return { success: true, data: evento };
-  });
+    }
+  );
 }
