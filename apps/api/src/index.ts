@@ -46,8 +46,8 @@ await app.register(jwt, {
 app.decorate("authenticate", async function (request: any, reply: any) {
   try {
     await request.jwtVerify();
-  } catch (err) {
-    reply.send(err);
+  } catch {
+    reply.status(401).send({ message: "Token inválido o expirado" });
   }
 });
 
