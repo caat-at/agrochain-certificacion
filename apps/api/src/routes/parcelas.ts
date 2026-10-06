@@ -11,6 +11,7 @@ import { z } from "zod";
 import {
   listParcelas,
   getParcelaById,
+  getParcelaConLotes,
   countParcelas,
   createParcela,
   updateParcela,
@@ -46,12 +47,12 @@ export async function parcelasRoutes(app: FastifyInstance) {
     return { parcelas };
   });
 
-  // GET /api/parcelas/:id — detalle
+  // GET /api/parcelas/:id — detalle (incluye nombre del predio padre y sus lotes)
   app.get<{ Params: { id: string } }>(
     "/:id",
     { preHandler: [(app as any).authenticate] },
     async (request, reply) => {
-      const parcela = await getParcelaById(request.params.id);
+      const parcela = await getParcelaConLotes(request.params.id);
       if (!parcela) {
         return reply.status(404).send({ message: "Parcela no encontrada" });
       }

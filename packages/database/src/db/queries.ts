@@ -791,6 +791,50 @@ export async function getPredioConLotes(
   return { ...predio, lotes };
 }
 
+// Parcela + su predio padre (nombre, ubicacion) + lotes/cosechas vinculados —
+// usado en el detalle de parcela, mismo patron que getPredioConLotes.
+export async function getParcelaConLotes(
+  id: string
+): Promise<(Parcela & { predioNombre: string | null; lotes: unknown[] }) | null> {
+  const { rows } = await pool.query<Parcela & { predioNombre: string | null }>(
+    `SELECT
+       parcelas.id,
+       parcelas.predio_id       AS "predioId",
+       parcelas.codigo_parcela  AS "codigoParcela",
+       parcelas.nombre,
+       parcelas.area_ha         AS "areaHa",
+       parcelas.latitud, parcelas.longitud,
+       parcelas.uso_actual      AS "usoActual",
+       parcelas.activo,
+       parcelas.created_at      AS "createdAt",
+       parcelas.updated_at      AS "updatedAt",
+       predios.nombre_predio    AS "predioNombre"
+     FROM parcelas
+     LEFT JOIN predios ON predios.id = parcelas.predio_id
+     WHERE parcelas.id = $1`,
+    [id]
+  );
+  const parcela = rows[0];
+  if (!parcela) return null;
+
+  const { rows: lotes } = await pool.query(
+    `SELECT
+       lotes.id, lotes.codigo_lote AS "codigoLote", lotes.especie, lotes.variedad,
+       lotes.area_ha AS "areaHa",
+       lotes.fecha_siembra AS "fechaSiembra", lotes.destino_produccion AS "destinoProduccion",
+       lotes.sistema_riego AS "sistemaRiego", lotes.estado, lotes.data_hash AS "dataHash",
+       lotes.lote_id_onchain AS "loteIdOnchain",
+       lotes.created_at AS "createdAt",
+       (SELECT count(*)::int FROM lote_plantas lp WHERE lp.lote_id = lotes.id) AS "totalPlantas"
+     FROM lotes
+     WHERE lotes.parcela_id = $1 AND lotes.estado != 'REVOCADO'
+     ORDER BY lotes.created_at DESC`,
+    [id]
+  );
+
+  return { ...parcela, lotes };
+}
+
 // ── Lotes ────────────────────────────────────────────────────────────────────
 
 // predioId se resuelve siempre via la parcela (l.parcela_id -> parcelas.predio_id)

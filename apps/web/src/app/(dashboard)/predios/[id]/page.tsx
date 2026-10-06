@@ -17,6 +17,15 @@ interface LotePredio {
   loteIdOnchain: string | null;
 }
 
+interface ParcelaPredio {
+  id: string;
+  codigoParcela: string;
+  nombre: string | null;
+  areaHa: number;
+  usoActual: string | null;
+  activo: boolean;
+}
+
 interface AgricultorContacto {
   nombres: string;
   apellidos: string;
@@ -60,6 +69,7 @@ export default async function PredioDetallePage({ params }: { params: { id: stri
   const token = cookies().get("ac_token")?.value ?? "";
 
   let predio: PredioDetalle;
+  let parcelas: ParcelaPredio[] = [];
   let subcriterios: StbnSubcriterio[] = [];
   let evidencias: StbnEvidenciaPilar[] = [];
   let evaluacion: StbnEvaluacion | null = null;
@@ -67,8 +77,9 @@ export default async function PredioDetallePage({ params }: { params: { id: stri
   let puntaje: PuntajeStbnLote | null = null;
 
   try {
-    const [resPredio, resSubcriterios, resEvidencias, resEvaluacion] = await Promise.all([
+    const [resPredio, resParcelas, resSubcriterios, resEvidencias, resEvaluacion] = await Promise.all([
       apiFetch<{ success: boolean; data: PredioDetalle }>(`/api/predios/${id}`),
+      apiFetch<{ parcelas: ParcelaPredio[] }>(`/api/parcelas?predioId=${id}`),
       apiFetch<{ subcriterios: StbnSubcriterio[] }>(`/api/stbn/subcriterios`),
       apiFetch<{ evidencias: StbnEvidenciaPilar[] }>(`/api/stbn/predios/${id}/evidencias`),
       apiFetch<{ evaluacion: StbnEvaluacion | null; calificaciones: StbnCalificacion[] }>(
@@ -77,6 +88,7 @@ export default async function PredioDetallePage({ params }: { params: { id: stri
     ]);
     if (!resPredio.success) notFound();
     predio = resPredio.data;
+    parcelas = resParcelas.parcelas;
     subcriterios = resSubcriterios.subcriterios;
     evidencias = resEvidencias.evidencias;
     evaluacion = resEvaluacion.evaluacion;
@@ -121,33 +133,30 @@ export default async function PredioDetallePage({ params }: { params: { id: stri
             </dl>
           </div>
 
-          {/* Lotes del predio */}
+          {/* Parcelas del predio */}
           <div className="card">
             <h2 className="font-semibold text-gray-800 mb-4">
-              Lotes
-              <span className="ml-2 text-xs font-normal text-gray-400">({predio.lotes.length})</span>
+              Parcelas
+              <span className="ml-2 text-xs font-normal text-gray-400">({parcelas.length})</span>
             </h2>
-            {predio.lotes.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-6">Sin lotes registrados en este predio</p>
+            {parcelas.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-6">Sin parcelas registradas en este predio</p>
             ) : (
               <div className="space-y-2">
-                {predio.lotes.map((l) => (
-                  <Link key={l.id} href={`/lotes/${l.id}`}>
+                {parcelas.map((p) => (
+                  <Link key={p.id} href={`/parcelas/${p.id}`}>
                     <div className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-100 transition-colors">
                       <div>
-                        <p className="text-sm font-mono font-medium text-gray-800">{l.codigoLote}</p>
+                        <p className="text-sm font-mono font-medium text-gray-800">
+                          {p.codigoParcela}{p.nombre ? ` — ${p.nombre}` : ""}
+                        </p>
                         <p className="text-xs text-gray-400 mt-0.5">
-                          {l.especie}{l.variedad ? ` · ${l.variedad}` : ""} · {l.areaHa} ha
+                          {p.areaHa} ha{p.usoActual ? ` · ${p.usoActual}` : ""}
                         </p>
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        {!l.loteIdOnchain && (
-                          <span className="badge bg-amber-50 text-amber-600 text-[10px]" title="No registrado en blockchain">
-                            Sin blockchain
-                          </span>
-                        )}
-                        <span className="badge bg-gray-100 text-gray-600 text-xs">{l.estado}</span>
-                      </div>
+                      <span className={`badge text-xs ${p.activo ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-400"}`}>
+                        {p.activo ? "Activa" : "Inactiva"}
+                      </span>
                     </div>
                   </Link>
                 ))}
