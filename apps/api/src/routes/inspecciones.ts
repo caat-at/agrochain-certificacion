@@ -12,7 +12,8 @@ import {
   getLoteById,
   updateLoteEstado,
 } from "@agrochain/database";
-import { finalizarInspeccionOnChain, isConfigured } from "../services/blockchain.js";
+import { isConfigured } from "../services/blockchain.js";
+import { enqueueAsync } from "../blockchain/writer.js";
 import { requireRole } from "../middleware/auth.js";
 
 // Roles que pueden operar inspecciones (crear/iniciar/completar/anclar) —
@@ -160,21 +161,25 @@ export async function inspeccionesRoutes(app: FastifyInstance) {
 
       await updateLoteEstado(inspeccion.loteId, nuevoEstadoLote);
 
-      // Ejecutar flujo on-chain completo: solicitar→iniciar→finalizar inspección en Polygon
+      // Ejecutar flujo on-chain completo: solicitar→iniciar→finalizar inspección en Polygon.
+      // Va por la cola serial: encolar el cierre de campaña y esta transaccion
+      // a la vez desde la misma wallet provoca un choque de nonce y una de
+      // las dos muere silenciosamente.
       let txHash: string | null = null;
       let blockNumber: number | null = null;
+      let blockchainError: string | null = null;
       if (isConfigured()) {
         try {
           const aprobado = d.resultado === "APROBADO" || d.resultado === "APROBADO_CON_OBSERVACIONES";
-          const txResult = await finalizarInspeccionOnChain(
-            inspeccion.loteId,
-            aprobado,
-            reporteHashHex,
-          );
+          const txResult = await enqueueAsync({
+            kind: "finalizarInspeccion",
+            payload: { loteId: inspeccion.loteId, aprobado, reporteHash: reporteHashHex },
+          });
           txHash      = txResult.txHash;
           blockNumber = txResult.blockNumber;
           await updateInspeccionTxHash(id, txHash);
         } catch (e) {
+          blockchainError = e instanceof Error ? e.message : String(e);
           console.error("[blockchain] Error finalizando inspección on-chain:", e);
         }
       }
@@ -185,6 +190,9 @@ export async function inspeccionesRoutes(app: FastifyInstance) {
         blockchain: txHash
           ? { txHash, blockNumber }
           : null,
+        // El ancla puede fallar con la inspeccion ya guardada en DB; sin este
+        // campo el cliente recibe 200 y no sabe que Polygon nunca lo vio.
+        blockchainError,
       };
     }
   );
@@ -215,7 +223,10 @@ export async function inspeccionesRoutes(app: FastifyInstance) {
           ? inspeccion.reporteHash.slice(2)
           : inspeccion.reporteHash;
 
-        const txResult = await finalizarInspeccionOnChain(inspeccion.loteId, aprobado, reporteHashHex);
+        const txResult = await enqueueAsync({
+          kind: "finalizarInspeccion",
+          payload: { loteId: inspeccion.loteId, aprobado, reporteHash: reporteHashHex },
+        });
 
         await updateInspeccionTxHash(request.params.id, txResult.txHash);
 

@@ -42,6 +42,29 @@ export function enqueue(job: WriteJob): void {
   void processNext();
 }
 
+/**
+ * Igual que enqueue, pero resuelve con el resultado. Mantiene la
+ * serializacion de la cola (dos transacciones de la misma wallet en paralelo
+ * chocan de nonce) y a la vez deja al handler devolver el txHash real en la
+ * respuesta en vez de responder sin saber si el ancla salio o no.
+ */
+export function enqueueAsync(
+  job: Omit<WriteJob, "onSuccess" | "onError">
+): Promise<TxResult & { tokenId?: number }> {
+  return new Promise((resolve, reject) => {
+    queue.push({
+      ...job,
+      onSuccess: async (result) => {
+        resolve(result);
+      },
+      onError: async (err) => {
+        reject(err instanceof Error ? err : new Error(String(err)));
+      },
+    });
+    void processNext();
+  });
+}
+
 export function queueLength(): number {
   return queue.length;
 }
