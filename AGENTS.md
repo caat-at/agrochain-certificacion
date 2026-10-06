@@ -5,7 +5,10 @@
 > Actualizar al cerrar cada bloque de trabajo.
 
 **Última actualización:** 2026-10-06
-**Rama:** `main` · **HEAD:** `23d85dc` (1 commit sin pushear)
+**Rama:** `main` · **HEAD:** `c312ce3` · 5 commits locales sin pushear
+> `origin/main` trae **`3da4e7e`** (push del compañero el 2026-10-06): campo Operador
+> (agricultor) en el formulario de editar predio — solo web; la API ya soportaba
+> `agricultorId`. Se integró con rebase (estaban 5 adelante / 1 detrás).
 **Equipo:** 2 personas trabajando como 1.
 
 ---
@@ -114,6 +117,23 @@ El default de la BD coincide con el rol que crea `packages/database/sql/00_schem
   `dataHash` de la BD = on-chain byte a byte.
 - **El portal público `/api/verificar/:codigoLote`** devuelve 14 campos
   poblados (incluye `blockchain.explorerUrl` y `certificado.tokenId`).
+
+### 2026-10-06 — Certificados: mint primero, gate BPA, copy honesto y fix de SSR
+
+- **`9fd9b85`** `POST /api/certificados/emitir` mintea el NFT **antes** de
+  persistir: si el mint falla → 500 y no queda nada escrito en BD (antes creaba
+  el cert + `CERTIFICADO` y dejaba el lote bloqueado si Polygon se caía).
+- **`4b3e2c2`** gate `BPA_ICA`: exige una inspección `BPA_CERTIFICACION` o
+  `BPA_RENOVACION` con resultado `APROBADO`/`APROBADO_CON_OBSERVACIONES`; si no,
+  400 con `inspeccionBpa`. Verificado en vivo (positivo y negativo).
+- **`18c8c69`** copy del flujo en `certificacion/page.tsx:366-372` (separación
+  de roles ADMIN/Inspector/Certificadora, wallet **genérica** — el NFT queda en
+  la wallet del backend, ver deuda `wallet_address`).
+- **`d9672f7`** 500 en `/certificacion` (**preexistente**): `PDFDownloadLink` de
+  `@react-pdf/renderer` v4 **lanza a propósito** en SSR ("PDFDownloadLink is a
+  web specific API"). Fix: `CertificadoPDFClient.tsx` (`next/dynamic` +
+  `{ ssr: false }`) y `page.tsx:6` importa el wrapper. Bisect realizado:
+  tabla off→200, QR off→500, PDF off→200, RSC=200/document=500.
 
 ### 2026-09-28 — Eliminación de `apps/mobile` (Expo)
 
@@ -245,6 +265,14 @@ Sigue **sin CI**. Falta el test de paridad de hash servidor-vs-cliente (§5, rie
   usa esta tabla. Decidir: borrar (tipo + tabla + migración `14_`) o empezar a
   llenarla desde `writer.ts` (ahí estaría el cimiento de la cola persistente).
 - **Sin CI.**
+- **Web sin typecheck propio + 3 errores TS preexistentes.** `@agrochain/web` no
+  tiene script `typecheck` y `tsc --noEmit --types node` reporta:
+  `apps/web/src/app/api/informes/lote/[loteId]/route.ts:45,58` (tipos de
+  react-pdf) y `apps/web/src/components/layout/Topbar.tsx:5` (falta `TECNICO` en
+  el map de etiquetas de rol). Los tapa `ignoreBuildErrors: true` (Paso 5).
+- **`@react-pdf/renderer` NO se puede importar con `PDFDownloadLink` directo**
+  en un Server Component: lanza en SSR. Usar wrapper `next/dynamic` + `ssr:false`
+  (como `CertificadoPDFClient.tsx`).
 - **Clave privada filtrada en el repo hermano** `sse-sistema-seguimiento/scripts/seed.ts:18`.
   Rotar + limpiar historial.
 - **Wallet del backend firma por todos** → la cadena prueba *qué* y *cuándo*, no *quién*.
