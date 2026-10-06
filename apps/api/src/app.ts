@@ -1,0 +1,104 @@
+import Fastify from "fastify";
+import cors from "@fastify/cors";
+import jwt from "@fastify/jwt";
+import multipart from "@fastify/multipart";
+
+import { authRoutes } from "./routes/auth.js";
+import { propietariosRoutes } from "./routes/propietarios.js";
+import { catalogoRoutes } from "./routes/catalogo.js";
+import { prediosRoutes } from "./routes/predios.js";
+import { parcelasRoutes } from "./routes/parcelas.js";
+import { plantasRoutes } from "./routes/plantas.js";
+import { lotesRoutes } from "./routes/lotes.js";
+import { eventosRoutes } from "./routes/eventos.js";
+import { syncRoutes } from "./routes/sync.js";
+import { verificacionRoutes } from "./routes/verificacion.js";
+import { usuariosRoutes } from "./routes/usuarios.js";
+import { certificadosRoutes } from "./routes/certificados.js";
+import { inspeccionesRoutes } from "./routes/inspecciones.js";
+import { campanasRoutes } from "./routes/campanas.js";
+import { metricasRoutes }  from "./routes/metricas.js";
+import { informesRoutes }  from "./routes/informes.js";
+import { evidenciaRoutes }  from "./routes/evidencia.js";
+import { eudrRoutes }      from "./routes/eudr.js";
+import { stbnRoutes }      from "./routes/stbn.js";
+import { verificarConexion } from "./services/blockchain.js";
+
+// ============================================================================
+// Construccion del servidor, SIN `listen()` ni procesos de fondo.
+//
+// Antes todo vivia en index.ts con top-level await, asi que era imposible
+// importar la app desde un test: entrar en el archivo ya abria el puerto y
+// lanzaria el checker de campanas. Separar buildApp() de la entrada permite
+// usar `inject()` de Fastify en vez de un servidor real.
+//
+// `dotenv` queda en index.ts (entrada de runtime) para que los tests no
+// carguen un .env que tape las variables que ellos mismos setean.
+// ============================================================================
+
+export async function buildApp() {
+  const app = Fastify({
+    // En tests el log JSON de cada request tapa el resultado de la suite.
+    logger: process.env.NODE_ENV === "test"
+      ? false
+      : { level: process.env.NODE_ENV === "production" ? "warn" : "info" },
+  });
+
+  // ── PLUGINS ────────────────────────────────────────────────────────────────
+  await app.register(cors, {
+    origin: process.env.CORS_ORIGIN ?? "*",
+    credentials: true,
+  });
+
+  await app.register(jwt, {
+    secret: process.env.JWT_SECRET ?? "dev-secret-cambiar-en-produccion",
+  });
+
+  // Decorar authenticate para las rutas protegidas
+  app.decorate("authenticate", async function (request: any, reply: any) {
+    try {
+      await request.jwtVerify();
+    } catch {
+      reply.status(401).send({ message: "Token inválido o expirado" });
+    }
+  });
+
+  await app.register(multipart, {
+    limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max por archivo
+  });
+
+  // ── RUTAS ───────────────────────────────────────────────────────────────────
+  await app.register(authRoutes,         { prefix: "/api/auth" });
+  await app.register(propietariosRoutes, { prefix: "/api/propietarios" });
+  await app.register(catalogoRoutes,     { prefix: "/api/catalogo" });
+  await app.register(prediosRoutes,      { prefix: "/api/predios" });
+  await app.register(parcelasRoutes,     { prefix: "/api/parcelas" });
+  await app.register(plantasRoutes,      { prefix: "/api/plantas" });
+  await app.register(lotesRoutes,        { prefix: "/api/lotes" });
+  await app.register(eventosRoutes,      { prefix: "/api/eventos" });
+  await app.register(syncRoutes,         { prefix: "/api/sync" });
+  await app.register(verificacionRoutes, { prefix: "/api/verificar" });
+  await app.register(usuariosRoutes,     { prefix: "/api/usuarios" });
+  await app.register(certificadosRoutes,   { prefix: "/api/certificados" });
+  await app.register(inspeccionesRoutes,  { prefix: "/api/inspecciones" });
+  await app.register(campanasRoutes,      { prefix: "/api/campanas" });
+  await app.register(metricasRoutes,      { prefix: "/api/metricas" });
+  await app.register(informesRoutes,      { prefix: "/api/informes" });
+  await app.register(evidenciaRoutes,     { prefix: "/api/evidencia" });
+  await app.register(eudrRoutes,          { prefix: "/api/eudr" });
+  await app.register(stbnRoutes,          { prefix: "/api/stbn" });
+
+  // ── HEALTH CHECK ────────────────────────────────────────────────────────────
+  app.get("/health", async () => ({
+    status: "ok",
+    version: "0.0.1",
+    timestamp: new Date().toISOString(),
+  }));
+
+  app.get("/api/blockchain/status", async () => {
+    const estado = await verificarConexion();
+    return estado;
+  });
+
+  return app;
+}
