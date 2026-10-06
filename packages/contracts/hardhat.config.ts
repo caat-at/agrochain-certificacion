@@ -30,7 +30,9 @@ const config: HardhatUserConfig = {
       url: POLYGON_AMOY_RPC,
       chainId: 80002,
       accounts: [PRIVATE_KEY],
-      gasPrice: 200000000000, // 200 gwei (actual Amoy)
+      // Sin gasPrice fijo: ethers usa el fee de la red (EIP-1559). El
+      // 200 gwei fijo era el valor de marzo 2026; la red esta en ~50 gwei
+      // y el fijo encarecia el deploy mas de 4 veces.
     },
     // Polygon Mainnet (solo produccion)
     polygon: {
