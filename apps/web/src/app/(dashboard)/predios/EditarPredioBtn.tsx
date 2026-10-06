@@ -10,6 +10,12 @@ interface PropietarioOpcion {
   numeroDocumento: string;
 }
 
+interface AgricultorOpcion {
+  id: string;
+  nombres: string;
+  apellidos: string;
+}
+
 interface Props {
   predio: {
     id: string;
@@ -18,6 +24,7 @@ interface Props {
     codigoIca: string | null;
     matriculaInmobiliaria: string | null;
     propietarioId: string | null;
+    agricultorId?: string | null;
     departamentoCod: string | null;
     municipioCod: string | null;
     vereda: string | null;
@@ -39,9 +46,11 @@ export function EditarPredioBtn({ predio }: Props) {
   const [departamentos, setDepartamentos] = useState<DepartamentoOpcion[]>([]);
   const [municipios, setMunicipios]       = useState<MunicipioOpcion[]>([]);
   const [propietarios, setPropietarios]   = useState<PropietarioOpcion[]>([]);
+  const [agricultores, setAgricultores]   = useState<AgricultorOpcion[]>([]);
 
   const [nombrePredio, setNombrePredio]           = useState(predio.nombrePredio);
   const [propietarioId, setPropietarioId]         = useState(predio.propietarioId ?? "");
+  const [agricultorId, setAgricultorId]           = useState(predio.agricultorId ?? "");
   const [codigoIca, setCodigoIca]                 = useState(predio.codigoIca ?? "");
   const [departamentoCod, setDepartamentoCod]     = useState(predio.departamentoCod ?? "");
   const [municipioCod, setMunicipioCod]           = useState(predio.municipioCod ?? "");
@@ -68,6 +77,14 @@ export function EditarPredioBtn({ predio }: Props) {
   }, [abierto, propietarios.length]);
 
   useEffect(() => {
+    if (!abierto || agricultores.length > 0) return;
+    fetch(`/api/usuarios?rol=AGRICULTOR`)
+      .then((r) => r.json())
+      .then((data) => setAgricultores(data.usuarios ?? []))
+      .catch(() => setAgricultores([]));
+  }, [abierto, agricultores.length]);
+
+  useEffect(() => {
     if (!departamentoCod) { setMunicipios([]); return; }
     fetchMunicipios(departamentoCod).then(setMunicipios);
   }, [departamentoCod]);
@@ -77,6 +94,7 @@ export function EditarPredioBtn({ predio }: Props) {
     setError(null);
     setNombrePredio(predio.nombrePredio);
     setPropietarioId(predio.propietarioId ?? "");
+    setAgricultorId(predio.agricultorId ?? "");
     setCodigoIca(predio.codigoIca ?? "");
     setDepartamentoCod(predio.departamentoCod ?? "");
     setMunicipioCod(predio.municipioCod ?? "");
@@ -110,6 +128,7 @@ export function EditarPredioBtn({ predio }: Props) {
         body: JSON.stringify({
           nombrePredio: nombrePredio.trim(),
           propietarioId,
+          agricultorId: agricultorId || null,
           codigoIca: codigoIca.trim() || null,
           departamentoCod: departamentoCod || undefined,
           municipioCod: municipioCod || undefined,
@@ -170,6 +189,17 @@ export function EditarPredioBtn({ predio }: Props) {
                     <option key={p.id} value={p.id}>{p.nombres} {p.apellidos} — {p.numeroDocumento}</option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label className="label">Operador (opcional)</label>
+                <select className="input" value={agricultorId} onChange={(e) => setAgricultorId(e.target.value)}>
+                  <option value="">— Sin operador asignado —</option>
+                  {agricultores.map((a) => (
+                    <option key={a.id} value={a.id}>{a.nombres} {a.apellidos}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-400 mt-1">Usuario con rol AGRICULTOR que opera este predio en el sistema (distinto del propietario legal).</p>
               </div>
 
               <div>

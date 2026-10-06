@@ -9,6 +9,7 @@ interface PredioItem {
   codigoPredio: string;
   codigoIca: string | null;
   propietarioId: string | null;
+  agricultorId: string | null;
   matriculaInmobiliaria: string | null;
   departamento: string;
   municipio: string;
