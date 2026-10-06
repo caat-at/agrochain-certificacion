@@ -851,18 +851,23 @@ const LOTE_COLUMNS_RETURNING = `
   updated_at           AS "updatedAt"
 `;
 
-export async function getLoteById(id: string): Promise<Lote | null> {
+// `agricultorId` acota el resultado a los lotes de ese agricultor. Es la unica
+// forma de que la capa de datos proteja la propiedad: el filtro vive en la query,
+// no en el handler, asi que ningun camino lo puede saltar por descuido.
+export async function getLoteById(id: string, agricultorId?: string): Promise<Lote | null> {
   const { rows } = await pool.query<Lote>(
-    `SELECT ${LOTE_COLUMNS} FROM lotes l JOIN parcelas par ON par.id = l.parcela_id WHERE l.id = $1`,
-    [id]
+    `SELECT ${LOTE_COLUMNS} FROM lotes l JOIN parcelas par ON par.id = l.parcela_id
+     WHERE l.id = $1${agricultorId ? " AND l.agricultor_id = $2" : ""}`,
+    agricultorId ? [id, agricultorId] : [id]
   );
   return rows[0] ?? null;
 }
 
-export async function getLoteByCodigo(codigoLote: string): Promise<Lote | null> {
+export async function getLoteByCodigo(codigoLote: string, agricultorId?: string): Promise<Lote | null> {
   const { rows } = await pool.query<Lote>(
-    `SELECT ${LOTE_COLUMNS} FROM lotes l JOIN parcelas par ON par.id = l.parcela_id WHERE l.codigo_lote = $1`,
-    [codigoLote]
+    `SELECT ${LOTE_COLUMNS} FROM lotes l JOIN parcelas par ON par.id = l.parcela_id
+     WHERE l.codigo_lote = $1${agricultorId ? " AND l.agricultor_id = $2" : ""}`,
+    agricultorId ? [codigoLote, agricultorId] : [codigoLote]
   );
   return rows[0] ?? null;
 }
@@ -958,7 +963,7 @@ export async function listLotesConResumen(filtros: {
   }));
 }
 
-export async function getLoteDetalle(id: string): Promise<
+export async function getLoteDetalle(id: string, agricultorId?: string): Promise<
   | (Lote & {
       predio: (Predio & { propietario: Propietario | null }) | null;
       agricultor: { nombres: string; apellidos: string; numeroDocumento: string } | null;
@@ -970,8 +975,9 @@ export async function getLoteDetalle(id: string): Promise<
   | null
 > {
   const { rows } = await pool.query<Lote>(
-    `SELECT ${LOTE_COLUMNS} FROM lotes l JOIN parcelas par ON par.id = l.parcela_id WHERE l.id = $1`,
-    [id]
+    `SELECT ${LOTE_COLUMNS} FROM lotes l JOIN parcelas par ON par.id = l.parcela_id
+     WHERE l.id = $1${agricultorId ? " AND l.agricultor_id = $2" : ""}`,
+    agricultorId ? [id, agricultorId] : [id]
   );
   const lote = rows[0];
   if (!lote) return null;
@@ -1018,7 +1024,7 @@ export async function getLoteDetalle(id: string): Promise<
   return { ...lote, predio, agricultor, plantas, eventos, certificado, campanas };
 }
 
-export async function getLoteConDetalleByCodigo(codigoLote: string): Promise<
+export async function getLoteConDetalleByCodigo(codigoLote: string, agricultorId?: string): Promise<
   | (Lote & {
       predio: { nombrePredio: string; departamento: string; municipio: string } | null;
       agricultor: { nombres: string; apellidos: string } | null;
@@ -1027,7 +1033,7 @@ export async function getLoteConDetalleByCodigo(codigoLote: string): Promise<
     })
   | null
 > {
-  const lote = await getLoteByCodigo(codigoLote);
+  const lote = await getLoteByCodigo(codigoLote, agricultorId);
   if (!lote) return null;
 
   const [predio, agricultor, eventos, certificado] = await Promise.all([
@@ -1184,14 +1190,15 @@ const PLANTA_COLUMNS = `
 // "Plantas de este lote" ahora se resuelve via lote_plantas, no por FK directa —
 // mismo nombre/firma que antes, asi que todos los call-sites (vista movil de
 // campanas, validacion de aportes, detalle de lote) quedan corregidos sin tocarlos.
-export async function listPlantasByLote(loteId: string): Promise<Planta[]> {
+export async function listPlantasByLote(loteId: string, agricultorId?: string): Promise<Planta[]> {
   const { rows } = await pool.query<Planta>(
     `SELECT ${PLANTA_COLUMNS}
      FROM plantas p
      JOIN lote_plantas lp ON lp.planta_id = p.id
      WHERE lp.lote_id = $1 AND p.activo = true
+       ${agricultorId ? "AND EXISTS (SELECT 1 FROM lotes la WHERE la.id = lp.lote_id AND la.agricultor_id = $2)" : ""}
      ORDER BY p.numero_planta::int ASC`,
-    [loteId]
+    agricultorId ? [loteId, agricultorId] : [loteId]
   );
   return rows;
 }
@@ -1389,6 +1396,7 @@ export interface ListEventosFiltros {
   plantaId?: string;
   tipoEvento?: string;
   soloVerificados?: boolean;
+  agricultorId?: string;
 }
 
 export async function listEventosProduccion(filtros: ListEventosFiltros = {}): Promise<unknown[]> {
@@ -1398,6 +1406,12 @@ export async function listEventosProduccion(filtros: ListEventosFiltros = {}): P
   if (filtros.plantaId) { params.push(filtros.plantaId); conditions.push(`e.planta_id = $${params.length}`); }
   if (filtros.tipoEvento) { params.push(filtros.tipoEvento); conditions.push(`e.tipo_evento = $${params.length}`); }
   if (filtros.soloVerificados) { conditions.push(`e.hash_verificado = true`); }
+  // EXISTS en vez de JOIN: no cambia la forma del SELECT ni el COUNT de filas,
+  // que ya_inner_join con plantas y usuarios.
+  if (filtros.agricultorId) {
+    params.push(filtros.agricultorId);
+    conditions.push(`EXISTS (SELECT 1 FROM lotes la WHERE la.id = e.lote_id AND la.agricultor_id = $${params.length})`);
+  }
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
   const { rows } = await pool.query(
@@ -1424,7 +1438,7 @@ export async function listEventosProduccion(filtros: ListEventosFiltros = {}): P
   return rows;
 }
 
-export async function getEventoProduccionDetalle(id: string): Promise<unknown | null> {
+export async function getEventoProduccionDetalle(id: string, agricultorId?: string): Promise<unknown | null> {
   const { rows } = await pool.query(
     `SELECT
        e.id, e.lote_id AS "loteId", e.planta_id AS "plantaId", e.creado_por AS "creadoPor",
@@ -1438,8 +1452,8 @@ export async function getEventoProduccionDetalle(id: string): Promise<unknown | 
      FROM eventos_produccion e
      JOIN lotes l ON l.id = e.lote_id
      JOIN usuarios u ON u.id = e.creado_por
-     WHERE e.id = $1`,
-    [id]
+     WHERE e.id = $1${agricultorId ? " AND l.agricultor_id = $2" : ""}`,
+    agricultorId ? [id, agricultorId] : [id]
   );
   const evento = rows[0];
   if (!evento) return null;

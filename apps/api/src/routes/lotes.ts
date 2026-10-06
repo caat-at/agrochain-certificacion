@@ -19,6 +19,23 @@ import {
   getPredioById,
 } from "@agrochain/database";
 import { registrarLoteOnChain, isConfigured } from "../services/blockchain.js";
+import { alcanceDeLotes } from "../middleware/alcance.js";
+import type { JwtPayload } from "../middleware/auth.js";
+import type { Lote } from "@agrochain/database";
+
+// Un lote ajeno se responde 404, no 403: un 403 confirmaria que el id existe.
+// Para un agricultor no hay diferencia entre "no existe" y "no es suyo".
+async function loteDeAlcance(
+  id: string,
+  payload: JwtPayload
+): Promise<{ ok: true; lote: Lote } | { ok: false; status: 403 | 404 }> {
+  const alcance = alcanceDeLotes(payload);
+  if (!alcance.permitido) return { ok: false, status: 403 };
+
+  const lote = await getLoteById(id, alcance.agricultorId);
+  if (!lote) return { ok: false, status: 404 };
+  return { ok: true, lote };
+}
 
 const CrearLoteSchema = z.object({
   parcelaId: z.string().uuid(),
@@ -93,7 +110,13 @@ export async function lotesRoutes(app: FastifyInstance) {
     "/:id",
     { preHandler: [(app as any).authenticate] },
     async (request, reply) => {
-    const lote = await getLoteDetalle(request.params.id);
+    const payload = (request as any).user as JwtPayload;
+    const alcance = alcanceDeLotes(payload);
+    if (!alcance.permitido) {
+      return reply.status(403).send({ message: "No autorizado para esta operación" });
+    }
+
+    const lote = await getLoteDetalle(request.params.id, alcance.agricultorId);
     if (!lote) return reply.status(404).send({ success: false, error: "Lote no encontrado" });
     return { success: true, data: lote };
     }
@@ -163,7 +186,13 @@ export async function lotesRoutes(app: FastifyInstance) {
 
   // GET /api/lotes/:loteId/plantas — listar plantas del lote
   app.get<{ Params: { id: string } }>("/:id/plantas", { preHandler: [(app as any).authenticate] }, async (request, reply) => {
-    const plantas = await listPlantasByLote(request.params.id);
+    const payload = (request as any).user as JwtPayload;
+    const alcance = alcanceDeLotes(payload);
+    if (!alcance.permitido) {
+      return reply.status(403).send({ message: "No autorizado para esta operación" });
+    }
+
+    const plantas = await listPlantasByLote(request.params.id, alcance.agricultorId);
     return {
       plantas: plantas.map((p) => ({
         ...p,
@@ -192,7 +221,7 @@ export async function lotesRoutes(app: FastifyInstance) {
     numHojasInicial?: number;
     estadoFenologicoInicial?: string;
   } }>("/:id/plantas", { preHandler: [(app as any).authenticate] }, async (request, reply) => {
-    const payload = (request as any).user as { sub: string };
+    const payload = (request as any).user as JwtPayload;
     const {
       codigoPlanta, numeroPlanta, latitud, longitud, altitudMsnm,
       especie, variedad, origenMaterial, procedenciaVivero,
@@ -204,8 +233,11 @@ export async function lotesRoutes(app: FastifyInstance) {
       return reply.status(400).send({ success: false, error: "Faltan campos requeridos" });
     }
 
-    const lote = await getLoteById(request.params.id);
-    if (!lote) return reply.status(404).send({ success: false, error: "Lote no encontrado" });
+    const visible = await loteDeAlcance(request.params.id, payload);
+    if (!visible.ok) {
+      return reply.status(visible.status).send({ success: false, error: "Lote no encontrado" });
+    }
+    const lote = visible.lote;
 
     try {
       const planta = await createPlanta({
@@ -244,20 +276,15 @@ export async function lotesRoutes(app: FastifyInstance) {
     "/:id/plantas/vincular",
     { preHandler: [(app as any).authenticate] },
     async (request, reply) => {
-      const payload = (request as any).user as { sub: string; rol: string };
+      const payload = (request as any).user as JwtPayload;
       const { plantaIds } = request.body;
       if (!Array.isArray(plantaIds) || plantaIds.length === 0) {
         return reply.status(400).send({ success: false, error: "plantaIds debe ser un arreglo no vacío" });
       }
 
-      const lote = await getLoteById(request.params.id);
-      if (!lote) return reply.status(404).send({ success: false, error: "Lote no encontrado" });
-
-      if (payload.rol === "AGRICULTOR") {
-        const predio = await getPredioById((await getParcelaById(lote.parcelaId))?.predioId ?? "");
-        if (!predio || predio.agricultorId !== payload.sub) {
-          return reply.status(403).send({ success: false, error: "Un agricultor solo puede vincular plantas en lotes de predios propios" });
-        }
+      const visible = await loteDeAlcance(request.params.id, payload);
+      if (!visible.ok) {
+        return reply.status(visible.status).send({ success: false, error: "Lote no encontrado" });
       }
 
       const resultado = await vincularPlantasALote({ loteId: request.params.id, plantaIds, vinculadoPor: payload.sub });
@@ -270,13 +297,16 @@ export async function lotesRoutes(app: FastifyInstance) {
     "/:id/registrar-blockchain",
     { preHandler: [(app as any).authenticate] },
     async (request, reply) => {
-      const payload = (request as any).user as { sub: string; rol: string };
+      const payload = (request as any).user as JwtPayload;
       if (!["ADMIN", "AGRICULTOR"].includes(payload.rol)) {
         return reply.status(403).send({ message: "Sin permisos para registrar en blockchain" });
       }
 
-      const lote = await getLoteById(request.params.id);
-      if (!lote) return reply.status(404).send({ message: "Lote no encontrado" });
+      const visible = await loteDeAlcance(request.params.id, payload);
+      if (!visible.ok) {
+        return reply.status(visible.status).send({ message: "Lote no encontrado" });
+      }
+      const lote = visible.lote;
       if (lote.txRegistro) {
         return reply.status(400).send({ message: "El lote ya está registrado en blockchain", txHash: lote.txRegistro });
       }
@@ -312,7 +342,13 @@ export async function lotesRoutes(app: FastifyInstance) {
     "/codigo/:codigo",
     { preHandler: [(app as any).authenticate] },
     async (request, reply) => {
-    const lote = await getLoteConDetalleByCodigo(request.params.codigo);
+    const payload = (request as any).user as JwtPayload;
+    const alcance = alcanceDeLotes(payload);
+    if (!alcance.permitido) {
+      return reply.status(403).send({ message: "No autorizado para esta operación" });
+    }
+
+    const lote = await getLoteConDetalleByCodigo(request.params.codigo, alcance.agricultorId);
     if (!lote) return reply.status(404).send({ success: false, error: "Lote no encontrado" });
     return { success: true, data: lote };
     }
@@ -329,10 +365,12 @@ export async function lotesRoutes(app: FastifyInstance) {
         return reply.status(400).send({ message: "Datos inválidos", errors: parsed.error.flatten().fieldErrors });
       }
 
-      const existente = await getLoteById(request.params.id);
-      if (!existente) {
-        return reply.status(404).send({ message: "Lote no encontrado" });
+      const payload = (request as any).user as JwtPayload;
+      const visible = await loteDeAlcance(request.params.id, payload);
+      if (!visible.ok) {
+        return reply.status(visible.status).send({ message: "Lote no encontrado" });
       }
+      const existente = visible.lote;
 
       const data = parsed.data;
       const actualizado = await updateLote(request.params.id, {
