@@ -364,12 +364,12 @@ export default async function CertificacionPage() {
         </h3>
         <ol className="space-y-2 text-sm text-verde-500">
           {[
-            "Lote debe estar en estado COSECHADO (inspección aprobada)",
-            "Certificadora revisa resultado de inspección, puntaje y hallazgos",
-            "Certificadora emite NFT ERC-721 al agricultor",
-            "CertificadoNFT llama a LoteRegistry.certificarLote() automáticamente",
-            "El lote pasa a estado CERTIFICADO en blockchain",
-            "El agricultor recibe el NFT en su wallet — puede transferirlo con el producto",
+            "Campaña de campo cerrada por ADMIN — se sella el hash de integridad (campanaHash)",
+            "Inspector BPA aprueba la inspección — se ancla el reporteHash y el lote pasa a COSECHADO",
+            "Certificadora revisa puntaje, hallazgos e integridad — rol exclusivo, ni ADMIN puede emitir",
+            "La API exige inspección BPA aprobada y campaña cerrada con hash verificado",
+            "Se mintea el NFT ERC-721 y CertificadoNFT llama a LoteRegistry.certificarLote()",
+            "El lote pasa a estado CERTIFICADO en blockchain — el NFT es transferible junto con el producto",
           ].map((step, i) => (
             <li key={i} className="flex items-start gap-2">
               <span className="w-5 h-5 bg-verde-100 text-verde-500 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">
