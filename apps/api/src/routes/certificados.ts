@@ -132,6 +132,28 @@ export async function certificadosRoutes(app: FastifyInstance) {
         }
       }
 
+      // Requisito para BPA_ICA: exige una inspeccion BPA_CERTIFICACION (o
+      // BPA_RENOVACION) aprobada. El contrato ya lo exige on-chain — sin
+      // inspeccion no se llega a estado COSECHADO — pero la API validaba el
+      // estado en su propia BD, que es manipulable.
+      if (tipo === "BPA_ICA") {
+        const inspeccionBpa =
+          (await getInspeccionVigentePorLoteYTipo(loteId, "BPA_CERTIFICACION")) ??
+          (await getInspeccionVigentePorLoteYTipo(loteId, "BPA_RENOVACION"));
+        const aprobadaBpa =
+          !!inspeccionBpa &&
+          (inspeccionBpa.resultado === "APROBADO" || inspeccionBpa.resultado === "APROBADO_CON_OBSERVACIONES");
+
+        if (!aprobadaBpa) {
+          return reply.status(400).send({
+            message:
+              "No se puede emitir certificado BPA_ICA sin una inspeccion BPA aprobada para este lote. " +
+              "Completa el flujo en /api/inspecciones antes de emitir.",
+            inspeccionBpa,
+          });
+        }
+      }
+
       const fechaEmision     = new Date();
       const fechaVencimiento = new Date(Date.now() + diasVigencia * 24 * 3600 * 1000);
 
