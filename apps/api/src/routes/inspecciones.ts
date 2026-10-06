@@ -12,7 +12,7 @@ import {
   getLoteById,
   updateLoteEstado,
 } from "@agrochain/database";
-import { finalizarInspeccionOnChain, isConfigured } from "../services/blockchain";
+import { finalizarInspeccionOnChain, isConfigured } from "../services/blockchain.js";
 import { requireRole } from "../middleware/auth.js";
 
 // Roles que pueden operar inspecciones (crear/iniciar/completar/anclar) —
