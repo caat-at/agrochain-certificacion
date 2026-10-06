@@ -4,8 +4,8 @@
 > reinicia, leer esto primero para recuperar el contexto sin preguntar nada.
 > Actualizar al cerrar cada bloque de trabajo.
 
-**Última actualización:** 2026-10-03
-**Rama:** `main` · **HEAD:** `8098d43` (= `origin/main`, 0 commits pendientes)
+**Última actualización:** 2026-10-06
+**Rama:** `main` · **HEAD:** `23d85dc` (1 commit sin pushear)
 **Equipo:** 2 personas trabajando como 1.
 
 ---
@@ -28,7 +28,9 @@ chore: <verbo en infinitivo, minúscula, sin punto final>
   - `fix: evitar que dev arranque con el dist viejo`
   - `feat: plantas viven en la parcela (reuso en cultivos perennes)`
   - `fix: exigir autenticacion y rol para evitar inyecciones maliciosas`
-- El cuerpo va en **español**, una línea, resumen de qué y por qué.
+- **SIN cuerpo.** Solo el subject. El usuario lo pidió explícitamente tras ver
+  2 commits con cuerpo largo: *"que no tenga descripcion... no tan largo ni
+  extenso"*. No añadir cuerpo aunque el estilo de git sugiera.
 - Antes de commitear: `git log --oneline -20` y **copiar el estilo de ahí**.
 
 ---
@@ -85,6 +87,34 @@ El default de la BD coincide con el rol que crea `packages/database/sql/00_schem
 
 ## 3. Estado: hecho
 
+### 2026-10-06 — Blockchain real en Polygon Amoy + flujo end-to-end
+
+- **Decisión:** usar Polygon Amoy (80002) **real**, NO Hardhat local. El cliente
+  debe ver la firma en `amoy.polygonscan.com`. Los 3 contratos ya están
+  deployados y verificados; **NO redesplegar**. Direcciones en `apps/api/.env`
+  (`CONTRACT_LOTE_REGISTRY` / `CONTRACT_CERTIFICADO_NFT` / `CONTRACT_ROLE_MANAGER`).
+  RPC estable: `https://polygon-amoy-bor-rpc.publicnode.com` (el oficial da
+  `ENOTFOUND`).
+- **RPC/config:** `polgon.config.ts` sin `gasPrice` fijo (commit `24f58fa`).
+- **Bug JWT (ya resuelto):** la API firmaba con un secreto aleatorio de
+  `apps/api/.env` y el web verificaba con el default → login devolvía 200 pero
+  **no navegaba**. Solución: `apps/web/.env.local` con el **mismo `JWT_SECRET`**.
+  Si se pisa ese archivo, vuelve el bug. **Nunca definir `DATABASE_URL`** (el
+  default de `client.ts:6` coincide con el rol de `00_schema.sql`).
+- **Bug de nonce (commit `23d85dc`):** `inspecciones.ts` llamaba
+  `finalizarInspeccionOnChain` directo, saltándose `writer.ts`, y chocaba con el
+  cierre de campaña que sí encolaba → carrera de nonce. Fix: nuevo
+  `enqueueAsync()` en `writer.ts` (encola y devuelve la promesa) y los dos
+  handlers de `inspecciones.ts` usan esa cola. `completar` ahora expone
+  `blockchainError` en vez de tragarlo con `console.error`.
+- **Flujo completo demostrado** sobre lote `COL-05-2024-00001`
+  (`031b3163-66cf-4282-975f-bc5ed7f23623`): hash válido aceptado + adulterado
+  rechazado, registro on-chain, campaña cerrada, inspección anclada,
+  certificado `CERT-2026-BPA-0001` con **NFT tokenId=2**. Verificado que
+  `dataHash` de la BD = on-chain byte a byte.
+- **El portal público `/api/verificar/:codigoLote`** devuelve 14 campos
+  poblados (incluye `blockchain.explorerUrl` y `certificado.tokenId`).
+
 ### 2026-09-28 — Eliminación de `apps/mobile` (Expo)
 
 - **Razón:** el cliente móvil será un proyecto Flutter separado. El módulo Expo
@@ -135,9 +165,18 @@ Dos errores preexistentes (verificados con `git stash` sobre el estado original)
 
 Orden acordado. **Paso a paso, uno por uno.**
 
-### [ ] Paso 2 — Endpoints sin autenticación
-`GET /api/lotes/:id` (`lotes.ts:70`), `GET /api/lotes/codigo/:codigo` (`lotes.ts:232`), `GET /api/eventos` (`eventos.ts:13,30`).
-`/api/verificar/:codigoLote` **sí** queda público (portal del consumidor).
+### [x] Paso 2 — Endpoints sin autenticación (hecho en `29d1a2c` + `26932b5`)
+`GET /api/lotes/:id`, `GET /api/lotes/codigo/:codigo`, `GET /api/eventos` →
+autenticados y acotados por rol. `/api/verificar/:codigoLote` **sí** queda
+público (portal del consumidor).
+
+### [x] Catálogo — se queda PÚBLICO (decidido 2026-10-06)
+`GET /api/catalogo/{paises,departamentos,municipios,especies}`: solo lectura
+sobre tablas estáticas, sin datos de usuarios. **Protegerlas rompería el web**:
+`apps/web/src/lib/ubicacion.ts:21` y `catalogoEspecies.ts:13` hacen `fetch`
+**sin header de autorización** y devuelven `[]` si la respuesta no es `ok` →
+los selects de país/departamento/municipio/especie quedarían vacíos.
+Además `apps/api/test/auth.test.ts:101` las exige públicas. No tocar.
 
 ### [ ] Paso 3 — `amplify.yml:10` roto
 Llama `pnpm --filter @agrochain/database db:generate`, script inexistente.
@@ -151,9 +190,8 @@ fuente única.
 ### [ ] Paso 5 — `next.config.mjs:7-13`
 `ignoreBuildErrors: true` y `ignoreDuringBuilds: true` → desactivar.
 
-### [ ] Paso 6 — `turbo.json:20-32`
-Borrar tareas fantasma de Prisma: `db:generate`, `db:push`, `db:studio`.
-Ningún paquete las implementa.
+### [x] Paso 6 — `turbo.json` fantasma (hecho en `c9bb35c`)
+Borradas las tareas fantasma de Prisma: `db:generate`, `db:push`, `db:studio`.
 
 ### [ ] Paso 7 — `index.ts:42-48` devuelve 500 en vez de 401
 El decorator `app.authenticate` hace `reply.send(err)` **sin `.status()`**. Un
@@ -163,10 +201,10 @@ migrar todas a `import { authenticate } from "../middleware/auth.js"`, que sí
 manda 401. Decidido: **paso aparte**, no mezclar con seguridad de sync.
 Ojo: `sync.ts` ya usa el importado, no el decorator.
 
-### [ ] Paso 8 — Sin CI y sin tests de API
-El monorepo entero tiene **1 archivo de test** (`packages/contracts/test/AgroChain.test.ts`).
-Cero tests de API/web. Lo primero que debería existir es un test de paridad de
-hash servidor-vs-cliente (§5, riesgo nº1).
+### [x] Paso 8 — Tests de API (hecho en `939b5b5`, ampliado después)
+Ahora hay **23 tests de API** (`apps/api/test/auth.test.ts`,
+`apps/api/test/alcance.test.ts`) + 31 de contratos. `pnpm turbo run test`.
+Sigue **sin CI**. Falta el test de paridad de hash servidor-vs-cliente (§5, riesgo nº1).
 
 ---
 
@@ -200,9 +238,13 @@ hash servidor-vs-cliente (§5, riesgo nº1).
   React 18 sobre el móvil, que necesita 19. Lo correcto es **borrarlo** (ya se
   hizo el 2026-09-28).
 - **`sync.ts` sin idempotency-key** → reintentos del cliente pueden duplicar.
-- **Cola blockchain en memoria**, no persistente.
-- **1 archivo de tests en todo el monorepo** (`packages/contracts/test/AgroChain.test.ts`).
-  Cero tests de API/web. Sin CI.
+- **Cola blockchain en memoria**, no persistente (el tx va a `lotes.tx_registro`
+  / `inspecciones.tx_hash` / `certificados.tx_emision`).
+- **`blockchain_txs` es tabla muerta.** Definida en `00_schema.sql:402` con
+  índice, **nadie la escribe**. Ojo: `estado_tx` (`00_schema.sql:74`) solo la
+  usa esta tabla. Decidir: borrar (tipo + tabla + migración `14_`) o empezar a
+  llenarla desde `writer.ts` (ahí estaría el cimiento de la cola persistente).
+- **Sin CI.**
 - **Clave privada filtrada en el repo hermano** `sse-sistema-seguimiento/scripts/seed.ts:18`.
   Rotar + limpiar historial.
 - **Wallet del backend firma por todos** → la cadena prueba *qué* y *cuándo*, no *quién*.
@@ -224,7 +266,8 @@ hash servidor-vs-cliente (§5, riesgo nº1).
 ## 8. Comandos de verificación
 
 ```powershell
-pnpm turbo run typecheck     # 4/4 OK (arreglado 2026-09-28)
+pnpm turbo run typecheck     # 6/6 OK
+pnpm turbo run test          # 23 API + 31 contratos
 pnpm db:seed                 # carga departamentos, NTC 5400, STBN, 8 usuarios, 2 lotes, campaña
 git status --short           # debe estar limpio antes de commitear
 ```
