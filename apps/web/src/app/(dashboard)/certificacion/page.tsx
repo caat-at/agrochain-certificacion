@@ -3,7 +3,7 @@ import { apiFetch } from "@/lib/api";
 import { formatFecha } from "@/lib/utils";
 import EmitirCertificadoBtn from "./EmitirCertificadoBtn";
 import QRCodeImg from "@/components/QRCode";
-import DescargarCertificadoBtn from "./CertificadoPDF";
+import DescargarCertificadoBtn from "./CertificadoPDFClient";
 
 const AMOY_SCAN = "https://amoy.polygonscan.com/tx";
 
