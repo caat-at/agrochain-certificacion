@@ -135,6 +135,31 @@ export async function certificadosRoutes(app: FastifyInstance) {
       const fechaEmision     = new Date();
       const fechaVencimiento = new Date(Date.now() + diasVigencia * 24 * 3600 * 1000);
 
+      // El mint va ANTES de persistir. Si el NFT falla no se escribe nada y el
+      // lote sigue en COSECHADO, asi el reintento es posible; con el orden
+      // anterior el lote pasaba a CERTIFICADO antes del mint y quedaba un
+      // estado intermedio del que no se podia salir sin tocar la BD a mano.
+      let nft: { tokenId: number; txHash: string } | null = null;
+
+      if (isConfigured() && lote.agricultor) {
+        try {
+          nft = await emitirCertificadoOnChain({
+            loteId,
+            agricultorAddress: lote.agricultor.walletAddress ?? "",
+            numeroCertificado,
+            tipo,
+            diasVigencia,
+            ipfsUri,
+          });
+        } catch (nftErr) {
+          const motivo = nftErr instanceof Error ? nftErr.message : String(nftErr);
+          return reply.status(500).send({
+            message: `No se pudo emitir el NFT en Polygon: ${motivo}`,
+            detalle: "No se creo ningun certificado ni cambio el estado del lote; puedes reintentar.",
+          });
+        }
+      }
+
       const certificado = await createCertificado({
         loteId,
         aprobadoPorId: payload.sub,
@@ -145,6 +170,13 @@ export async function certificadosRoutes(app: FastifyInstance) {
         fechaVencimiento,
       });
 
+      if (nft) {
+        await updateCertificadoNft(certificado.id, {
+          nftTokenId: String(nft.tokenId),
+          txEmision:  nft.txHash,
+        });
+      }
+
       if (declaracionEudr) {
         await crearCertificadoEudrRequisito({
           certificadoId: certificado.id,
@@ -153,35 +185,13 @@ export async function certificadosRoutes(app: FastifyInstance) {
         });
       }
 
-      // Actualizar estado del lote a CERTIFICADO
       await updateLoteEstado(loteId, "CERTIFICADO");
 
-      // Intentar mintear NFT on-chain (no bloquea si falla)
-      if (isConfigured() && lote.agricultor) {
-        try {
-          const nft = await emitirCertificadoOnChain({
-            loteId,
-            agricultorAddress: lote.agricultor.walletAddress ?? "",
-            numeroCertificado,
-            tipo,
-            diasVigencia,
-            ipfsUri,
-          });
-          await updateCertificadoNft(certificado.id, {
-            nftTokenId: String(nft.tokenId),
-            txEmision:  nft.txHash,
-          });
-          return reply.status(201).send({
-            certificado: { ...certificado, nftTokenId: String(nft.tokenId), txEmision: nft.txHash },
-            blockchain: { tokenId: nft.tokenId, txHash: nft.txHash },
-          });
-        } catch (nftErr) {
-          // NFT falló pero el certificado DB ya existe — retornar con advertencia
-          return reply.status(201).send({
-            certificado,
-            warning: `Certificado creado en DB pero NFT falló: ${String(nftErr)}`,
-          });
-        }
+      if (nft) {
+        return reply.status(201).send({
+          certificado: { ...certificado, nftTokenId: String(nft.tokenId), txEmision: nft.txHash },
+          blockchain: { tokenId: nft.tokenId, txHash: nft.txHash },
+        });
       }
 
       return reply.status(201).send({ certificado });
