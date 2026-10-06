@@ -4,9 +4,32 @@
 > reinicia, leer esto primero para recuperar el contexto sin preguntar nada.
 > Actualizar al cerrar cada bloque de trabajo.
 
-**Última actualización:** 2026-09-28
-**Rama:** `main` · **HEAD:** `b760fa6` (= `origin/main`, 0 commits pendientes)
+**Última actualización:** 2026-10-03
+**Rama:** `main` · **HEAD:** `8098d43` (= `origin/main`, 0 commits pendientes)
 **Equipo:** 2 personas trabajando como 1.
+
+---
+
+## 0. Reglas de commits (obligatorio)
+
+El historial es **Conventional Commits en español**: 34 de los últimos 40 commits
+usan prefijo. No inventar otro formato.
+
+```
+fix: <verbo en infinitivo, minúscula, sin punto final>
+feat: <verbo en infinitivo, minúscula, sin punto final>
+chore: <verbo en infinitivo, minúscula, sin punto final>
+```
+
+- **Empieza siempre por `tipo:`** y después **verbo en infinitivo**: `evitar`,
+  `permitir`, `agregar`, `corregir`, `borrar`, `exigir`. Ese es el estilo real
+  del repo, no inventar pasado, en inglés ni con punto final.
+- Ejemplos reales del repo:
+  - `fix: evitar que dev arranque con el dist viejo`
+  - `feat: plantas viven en la parcela (reuso en cultivos perennes)`
+  - `fix: exigir autenticacion y rol para evitar inyecciones maliciosas`
+- El cuerpo va en **español**, una línea, resumen de qué y por qué.
+- Antes de commitear: `git log --oneline -20` y **copiar el estilo de ahí**.
 
 ---
 
