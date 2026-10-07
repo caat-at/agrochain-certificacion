@@ -7,7 +7,7 @@ import {
   updateCertificadoNft,
   getLoteParaCertificacion,
   updateLoteEstado,
-  getDeclaracionVigentePorLote,
+  getDeclaracionVigentePorParcela,
   crearCertificadoEudrRequisito,
   calcularPuntajeStbnLote,
   getInspeccionVigentePorLoteYTipo,
@@ -77,12 +77,13 @@ export async function certificadosRoutes(app: FastifyInstance) {
       }
 
       // Requisito adicional para STBN (PNSS 0000404 — PlanetAI Nature Space):
-      // el lote debe tener una declaracion EUDR firmada/anclada declarando
-      // libre_deforestacion=true. Sin esto, es imposible superar el pilar de
-      // 40/100 puntos del estandar (trazabilidad EUDR).
-      let declaracionEudr: Awaited<ReturnType<typeof getDeclaracionVigentePorLote>> = null;
+      // la PARCELA del lote (area fisica de produccion) debe tener una
+      // declaracion EUDR firmada/anclada declarando libre_deforestacion=true.
+      // Sin esto, es imposible superar el pilar de 40/100 puntos del estandar
+      // (trazabilidad EUDR) — ver 15_eudr_via_parcela.sql.
+      let declaracionEudr: Awaited<ReturnType<typeof getDeclaracionVigentePorParcela>> = null;
       if (tipo === "STBN") {
-        declaracionEudr = await getDeclaracionVigentePorLote(loteId);
+        declaracionEudr = await getDeclaracionVigentePorParcela(lote.parcelaId);
         const cumpleEudr =
           !!declaracionEudr &&
           (declaracionEudr.estado === "FIRMADA" || declaracionEudr.estado === "ANCLADA_BLOCKCHAIN") &&
@@ -92,7 +93,7 @@ export async function certificadosRoutes(app: FastifyInstance) {
           return reply.status(400).send({
             message:
               "No se puede emitir certificado STBN sin una declaración EUDR firmada que confirme libre_deforestacion=true. " +
-              "Completa el flujo en /api/eudr/lotes/:loteId antes de emitir.",
+              "Completa el flujo en /api/eudr/parcelas/:parcelaId antes de emitir.",
             declaracionEudr,
           });
         }

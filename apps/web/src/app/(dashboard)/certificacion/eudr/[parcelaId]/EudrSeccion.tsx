@@ -3,10 +3,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { getApiUrl } from "@/lib/client";
 
-const AMOY_SCAN = "https://amoy.polygonscan.com/tx";
-
-export interface EudrEstadoLote {
-  loteId: string;
+export interface EudrEstadoParcela {
+  parcelaId: string;
   tienePoligono: boolean;
   poligonoVersion: number | null;
   tieneDeclaracionVigente: boolean;
@@ -38,24 +36,19 @@ function authHeaders(token: string): HeadersInit {
 }
 
 export function EudrSeccion({
-  loteId,
+  parcelaId,
   estadoInicial,
   token,
 }: {
-  loteId: string;
-  estadoInicial: EudrEstadoLote | null;
+  parcelaId: string;
+  estadoInicial: EudrEstadoParcela | null;
   token: string;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Paso 1: polígono
-  const [geojsonText, setGeojsonText] = useState("");
-  const [areaHa, setAreaHa] = useState("");
-  const [fuente, setFuente] = useState("DIBUJADO_MANUAL");
-
-  // Paso 2: declaración
+  // Declaración
   const [libreDeforestacion, setLibreDeforestacion] = useState(true);
   const [fechaCorte, setFechaCorte] = useState("");
   const [observaciones, setObservaciones] = useState("");
@@ -67,48 +60,14 @@ export function EudrSeccion({
   const [tipoEvidencia, setTipoEvidencia] = useState("IMAGEN_SATELITAL");
   const [descEvidencia, setDescEvidencia] = useState("");
 
-  const [anclando, setAnclando] = useState(false);
-  const [ancladoEnCola, setAncladoEnCola] = useState(false);
-
   const estado = estadoInicial;
-
-  async function handleCrearPoligono(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    let geojson: unknown;
-    try {
-      geojson = JSON.parse(geojsonText);
-    } catch {
-      setError("El GeoJSON no es un JSON válido.");
-      return;
-    }
-    setLoading(true);
-    try {
-      const res = await fetch(`${getApiUrl()}/api/eudr/lotes/${loteId}/poligono`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders(token) },
-        body: JSON.stringify({
-          geojson,
-          areaHaCalculada: areaHa ? Number(areaHa) : undefined,
-          fuente,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message ?? `Error ${res.status}`);
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }
 
   async function handleCrearDeclaracion(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch(`${getApiUrl()}/api/eudr/lotes/${loteId}/declaracion`, {
+      const res = await fetch(`${getApiUrl()}/api/eudr/parcelas/${parcelaId}/declaracion`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders(token) },
         body: JSON.stringify({
@@ -142,25 +101,6 @@ export function EudrSeccion({
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function handleAnclar(declaracionId: string) {
-    setError(null);
-    setAnclando(true);
-    try {
-      const res = await fetch(`${getApiUrl()}/api/eudr/declaraciones/${declaracionId}/anclar-blockchain`, {
-        method: "POST",
-        headers: authHeaders(token),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message ?? `Error ${res.status}`);
-      setAncladoEnCola(true);
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setAnclando(false);
     }
   }
 
@@ -209,7 +149,7 @@ export function EudrSeccion({
   }
 
   if (!estado) {
-    return <p className="text-sm text-gray-400">No se pudo cargar el estado EUDR del lote.</p>;
+    return <p className="text-sm text-gray-400">No se pudo cargar el estado EUDR de la parcela.</p>;
   }
 
   const declaracionId = estado.declaracionId;
@@ -236,46 +176,13 @@ export function EudrSeccion({
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-600">{error}</div>
       )}
 
-      {/* Sin polígono — registrarlo */}
+      {/* Sin poligono — EUDR usa el poligono general de la parcela (el mismo
+          que se dibuja arriba con el mapa interactivo), no pide uno propio */}
       {!estado.tienePoligono && (
-        <form onSubmit={handleCrearPoligono} className="space-y-3 bg-gray-50 rounded-xl p-4">
-          <p className="text-xs text-gray-500">Registra el polígono georreferenciado (GeoJSON) del área productiva.</p>
-          <div>
-            <label className="label">GeoJSON</label>
-            <textarea
-              className="input font-mono text-xs"
-              rows={4}
-              value={geojsonText}
-              onChange={(e) => setGeojsonText(e.target.value)}
-              placeholder='{"type":"Polygon","coordinates":[[[...]]]}'
-              required
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label">Área calculada (ha)</label>
-              <input
-                type="number"
-                step="0.01"
-                className="input"
-                value={areaHa}
-                onChange={(e) => setAreaHa(e.target.value)}
-                placeholder="Opcional"
-              />
-            </div>
-            <div>
-              <label className="label">Fuente</label>
-              <select className="input" value={fuente} onChange={(e) => setFuente(e.target.value)}>
-                <option value="DIBUJADO_MANUAL">Dibujado manual</option>
-                <option value="GPS_CAMPO">GPS de campo</option>
-                <option value="KML_IMPORTADO">KML importado</option>
-              </select>
-            </div>
-          </div>
-          <button type="submit" disabled={loading} className="btn-primary text-sm py-2 w-full disabled:opacity-50">
-            {loading ? "Guardando…" : "Registrar polígono"}
-          </button>
-        </form>
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-700">
+          Esta parcela aún no tiene un polígono georreferenciado. Dibújalo en la sección
+          "Polígono de la parcela" (arriba) para poder declarar cumplimiento EUDR.
+        </div>
       )}
 
       {/* Polígono ok, sin declaración vigente — crearla */}
@@ -324,23 +231,13 @@ export function EudrSeccion({
         </div>
       )}
 
-      {/* Declaración FIRMADA — anclar en blockchain */}
+      {/* Declaración FIRMADA — el anclaje en blockchain aun no esta disponible
+          para EUDR (requiere un contrato propio para parcelas, pendiente) */}
       {declaracionId && estado.declaracionEstado === "FIRMADA" && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-3">
-          <p className="text-sm text-blue-700">Declaración firmada, pendiente de anclar en blockchain.</p>
-          {ancladoEnCola ? (
-            <p className="text-xs text-blue-600">
-              Anclaje enviado a Polygon Amoy — actualiza la página en unos segundos para ver el TX confirmado.
-            </p>
-          ) : (
-            <button
-              onClick={() => handleAnclar(declaracionId)}
-              disabled={anclando}
-              className="btn-primary text-sm py-2 w-full disabled:opacity-50"
-            >
-              {anclando ? "Enviando a Polygon…" : "Anclar en blockchain"}
-            </button>
-          )}
+          <p className="text-sm text-blue-700">
+            Declaración firmada y válida para certificación. El anclaje en blockchain para EUDR está en desarrollo.
+          </p>
         </div>
       )}
 

@@ -6,7 +6,27 @@
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { listPredios, getPredioConLotes, getPredioById, createPredio, updatePredio, countPredios, generarCodigoPredio, getUsuarioById, getPropietarioById } from "@agrochain/database";
+import {
+  listPredios,
+  getPredioConLotes,
+  getPredioById,
+  createPredio,
+  updatePredio,
+  countPredios,
+  generarCodigoPredio,
+  getUsuarioById,
+  getPropietarioById,
+  getPoligonoVigentePorPredio,
+  listPoligonosPorPredio,
+  crearPoligonoVigentePredio,
+  desactivarPoligonoVigentePredio,
+} from "@agrochain/database";
+
+const PoligonoSchema = z.object({
+  geojson: z.record(z.unknown()),
+  areaHaCalculada: z.number().positive().optional(),
+  fuente: z.enum(["DIBUJADO_MANUAL", "GPS_CAMPO", "KML_IMPORTADO"]).optional(),
+});
 
 const CrearPredioSchema = z.object({
   propietarioId: z.string().uuid(),
@@ -66,12 +86,14 @@ const EditarPredioSchema = z.object({
 });
 
 export async function prediosRoutes(app: FastifyInstance) {
-  // GET /api/predios — listar predios
+  // GET /api/predios?propietarioId= — listar predios
   app.get("/", { preHandler: [(app as any).authenticate] }, async (request, reply) => {
     const payload = (request as any).user as { sub: string; rol: string };
+    const { propietarioId } = request.query as { propietarioId?: string };
 
     const predios = await listPredios({
       agricultorId: payload.rol === "AGRICULTOR" ? payload.sub : undefined,
+      propietarioId,
       soloActivos: true,
     });
 
@@ -176,6 +198,84 @@ export async function prediosRoutes(app: FastifyInstance) {
         return { success: true, data: existente };
       }
       return { success: true, data: actualizado };
+    }
+  );
+
+  // GET /api/predios/:id/poligono — vigente + historial de versiones
+  app.get<{ Params: { id: string } }>(
+    "/:id/poligono",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
+      const predio = await getPredioById(request.params.id);
+      if (!predio) return reply.status(404).send({ message: "Predio no encontrado" });
+
+      const [vigente, historial] = await Promise.all([
+        getPoligonoVigentePorPredio(request.params.id),
+        listPoligonosPorPredio(request.params.id),
+      ]);
+      if (!vigente) return reply.status(404).send({ message: "El predio no tiene polígono registrado" });
+      return { poligono: vigente, historial };
+    }
+  );
+
+  // POST /api/predios/:id/poligono — registra una nueva version vigente
+  app.post<{ Params: { id: string } }>(
+    "/:id/poligono",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
+      const payload = (request as any).user as { sub: string; rol: string };
+      if (!["ADMIN", "AGRICULTOR"].includes(payload.rol)) {
+        return reply.status(403).send({ message: "Sin permisos para registrar el polígono del predio" });
+      }
+
+      const predio = await getPredioById(request.params.id);
+      if (!predio) return reply.status(404).send({ message: "Predio no encontrado" });
+
+      if (payload.rol === "AGRICULTOR" && predio.agricultorId !== payload.sub) {
+        return reply.status(403).send({ message: "Un agricultor solo puede registrar el polígono de predios propios" });
+      }
+
+      const parsed = PoligonoSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({ message: "Datos inválidos", errors: parsed.error.flatten() });
+      }
+
+      const poligono = await crearPoligonoVigentePredio({
+        predioId: request.params.id,
+        geojson: parsed.data.geojson,
+        areaHaCalculada: parsed.data.areaHaCalculada ?? null,
+        fuente: parsed.data.fuente,
+        creadoPor: payload.sub,
+      });
+
+      return reply.status(201).send({ success: true, poligono });
+    }
+  );
+
+  // DELETE /api/predios/:id/poligono — desactiva la version vigente (no borra
+  // el historial, mismo principio de versionado que el resto del modulo)
+  app.delete<{ Params: { id: string } }>(
+    "/:id/poligono",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
+      const payload = (request as any).user as { sub: string; rol: string };
+      if (!["ADMIN", "AGRICULTOR"].includes(payload.rol)) {
+        return reply.status(403).send({ message: "Sin permisos para eliminar el polígono del predio" });
+      }
+
+      const predio = await getPredioById(request.params.id);
+      if (!predio) return reply.status(404).send({ message: "Predio no encontrado" });
+
+      if (payload.rol === "AGRICULTOR" && predio.agricultorId !== payload.sub) {
+        return reply.status(403).send({ message: "Un agricultor solo puede eliminar el polígono de predios propios" });
+      }
+
+      const eliminado = await desactivarPoligonoVigentePredio(request.params.id);
+      if (!eliminado) {
+        return reply.status(404).send({ message: "El predio no tiene polígono registrado" });
+      }
+
+      return { success: true };
     }
   );
 }

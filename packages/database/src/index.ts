@@ -6,6 +6,7 @@ export * from "./db/queries.js";
 export * from "./db/queries-campanas.js";
 export * from "./db/queries-eudr.js";
 export * from "./db/queries-stbn.js";
+export * from "./db/queries-poligonos.js";
 
 // Utilidades de hashing e integridad — sin cambios, modulo puro
 export {
@@ -53,7 +54,8 @@ export type {
   VerificacionIntegridad,
   VerificacionRegistroDetalle,
   VerificacionHashCampana,
-  LotePoligono,
+  PredioPoligono,
+  ParcelaPoligono,
   EudrDeclaracion,
   EudrEvidenciaSatelital,
   EvidenciaBinaria,

@@ -1,6 +1,6 @@
 import pool from "./client.js";
 import { getLoteById } from "./queries.js";
-import { getEudrEstadoLote } from "./queries-eudr.js";
+import { getEudrEstadoParcela } from "./queries-eudr.js";
 import type {
   StbnSubcriterio,
   StbnEvidenciaPilar,
@@ -301,10 +301,10 @@ export async function updateEvaluacionTxHash(evaluacionId: string, txHash: strin
 }
 
 // ── Combinador: puntaje /100 en contexto de Lote ─────────────────────────────
-// Resuelve predioId desde el lote, trae la evaluacion vigente de los 5 pilares
-// humanos (0-60) y el estado EUDR del lote (0-40, via queries-eudr.ts sin
-// modificarlo) — el certificado es por lote, no por predio, porque dos lotes
-// del mismo predio pueden tener distinto estado EUDR.
+// Resuelve predioId y parcelaId desde el lote, trae la evaluacion vigente de
+// los 5 pilares humanos (0-60) y el estado EUDR de la PARCELA del lote (0-40,
+// via queries-eudr.ts) — EUDR certifica el area fisica (parcela), no el ciclo
+// de cosecha: todos los lotes de una misma parcela comparten su estado EUDR.
 
 // pg no parsea `numeric` a number por defecto (llega como string) — se
 // castea explicitamente aqui para evitar concatenacion en las sumas.
@@ -335,7 +335,7 @@ export async function calcularPuntajeStbnLote(loteId: string): Promise<PuntajeSt
   const [subcriterios, evaluacion, eudr] = await Promise.all([
     listSubcriteriosStbn(),
     getEvaluacionVigentePorPredio(predioId),
-    getEudrEstadoLote(loteId),
+    getEudrEstadoParcela(lote.parcelaId),
   ]);
 
   const calificaciones = evaluacion ? await listCalificacionesPorEvaluacion(evaluacion.id) : [];

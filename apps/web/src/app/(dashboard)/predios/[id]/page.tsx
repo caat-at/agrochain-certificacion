@@ -1,10 +1,21 @@
 export const dynamic = "force-dynamic";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { cookies } from "next/headers";
+import dynamicImport from "next/dynamic";
 import { apiFetch } from "@/lib/api";
-import { StbnEvidenciaSeccion, type StbnSubcriterio, type StbnEvidenciaPilar } from "./StbnEvidenciaSeccion";
-import { StbnEvaluacionSeccion, type StbnEvaluacion, type StbnCalificacion, type PuntajeStbnLote } from "./StbnEvaluacionSeccion";
+
+const PoligonoMapa = dynamicImport(() => import("@/components/PoligonoMapa"), { ssr: false });
+
+interface PoligonoVigente {
+  geojson: { type: string; coordinates: number[][][] };
+  areaHaCalculada: number | null;
+  fuente: string;
+  version: number;
+}
+
+// Paleta para distinguir las parcelas de un mismo predio en el mapa —
+// se repite ciclicamente si hay mas parcelas que colores.
+const PALETA_PARCELAS = ["#e11d48", "#f59e0b", "#16a34a", "#9333ea", "#0891b2", "#db2777"];
 
 interface LotePredio {
   id: string;
@@ -66,41 +77,34 @@ interface PredioDetalle {
 
 export default async function PredioDetallePage({ params }: { params: { id: string } }) {
   const { id } = params;
-  const token = cookies().get("ac_token")?.value ?? "";
 
   let predio: PredioDetalle;
   let parcelas: ParcelaPredio[] = [];
-  let subcriterios: StbnSubcriterio[] = [];
-  let evidencias: StbnEvidenciaPilar[] = [];
-  let evaluacion: StbnEvaluacion | null = null;
-  let calificaciones: StbnCalificacion[] = [];
-  let puntaje: PuntajeStbnLote | null = null;
+  let poligono: PoligonoVigente | null = null;
+  const capasParcelas: { geojson: PoligonoVigente["geojson"]; color: string; etiqueta: string }[] = [];
 
   try {
-    const [resPredio, resParcelas, resSubcriterios, resEvidencias, resEvaluacion] = await Promise.all([
+    const [resPredio, resParcelas] = await Promise.all([
       apiFetch<{ success: boolean; data: PredioDetalle }>(`/api/predios/${id}`),
       apiFetch<{ parcelas: ParcelaPredio[] }>(`/api/parcelas?predioId=${id}`),
-      apiFetch<{ subcriterios: StbnSubcriterio[] }>(`/api/stbn/subcriterios`),
-      apiFetch<{ evidencias: StbnEvidenciaPilar[] }>(`/api/stbn/predios/${id}/evidencias`),
-      apiFetch<{ evaluacion: StbnEvaluacion | null; calificaciones: StbnCalificacion[] }>(
-        `/api/stbn/predios/${id}/evaluacion`
-      ),
     ]);
     if (!resPredio.success) notFound();
     predio = resPredio.data;
     parcelas = resParcelas.parcelas;
-    subcriterios = resSubcriterios.subcriterios;
-    evidencias = resEvidencias.evidencias;
-    evaluacion = resEvaluacion.evaluacion;
-    calificaciones = resEvaluacion.calificaciones;
+    poligono = await apiFetch<{ poligono: PoligonoVigente }>(`/api/predios/${id}/poligono`)
+      .then((r) => r.poligono)
+      .catch(() => null);
 
-    const primerLote = predio.lotes?.[0];
-    if (primerLote) {
-      const resPuntaje = await apiFetch<{ puntaje: PuntajeStbnLote }>(`/api/stbn/lotes/${primerLote.id}/puntaje`).catch(
-        () => null
-      );
-      puntaje = resPuntaje?.puntaje ?? null;
-    }
+    const poligonosParcelas = await Promise.all(
+      parcelas.map((p) =>
+        apiFetch<{ poligono: PoligonoVigente }>(`/api/parcelas/${p.id}/poligono`)
+          .then((r) => r.poligono)
+          .catch(() => null)
+      )
+    );
+    poligonosParcelas.forEach((pol, i) => {
+      if (pol) capasParcelas.push({ geojson: pol.geojson, color: PALETA_PARCELAS[i % PALETA_PARCELAS.length], etiqueta: parcelas[i].codigoParcela });
+    });
   } catch {
     notFound();
   }
@@ -131,6 +135,24 @@ export default async function PredioDetallePage({ params }: { params: { id: stri
               {predio.altitudMsnm != null && <InfoItem label="Altitud" value={`${predio.altitudMsnm} msnm`} />}
               <InfoItem label="Coordenadas" value={`${predio.latitud}, ${predio.longitud}`} />
             </dl>
+          </div>
+
+          {/* Poligono georreferenciado del predio */}
+          <div className="card">
+            <h2 className="font-semibold text-gray-800 mb-4">Polígono del predio</h2>
+            <PoligonoMapa
+              endpoint={`/api/predios/${predio.id}/poligono`}
+              centroLat={predio.latitud}
+              centroLon={predio.longitud}
+              poligonoInicial={poligono}
+              color="#3388ff"
+              capasReferencia={capasParcelas}
+            />
+            {capasParcelas.length > 0 && (
+              <p className="text-xs text-gray-400 mt-2">
+                Los trazos punteados de color muestran las parcelas ya registradas en este predio.
+              </p>
+            )}
           </div>
 
           {/* Parcelas del predio */}
@@ -164,14 +186,9 @@ export default async function PredioDetallePage({ params }: { params: { id: stri
             )}
           </div>
 
-          {/* Evidencia narrativa STBN por pilar */}
-          <div className="card">
-            <h2 className="font-semibold text-gray-800 mb-4">Evidencia STBN por pilar</h2>
-            <StbnEvidenciaSeccion predioId={predio.id} evidenciasIniciales={evidencias} token={token} />
-          </div>
         </div>
 
-        {/* Columna derecha: evaluación + puntaje */}
+        {/* Columna derecha */}
         <div className="space-y-6">
           {/* Propietario (dueño legal, sin cuenta de acceso) */}
           <div className="card">
@@ -238,19 +255,6 @@ export default async function PredioDetallePage({ params }: { params: { id: stri
               </div>
             </div>
           )}
-
-          <div className="card">
-            <h2 className="font-semibold text-gray-800 mb-4">Evaluación STBN</h2>
-            <StbnEvaluacionSeccion
-              predioId={predio.id}
-              subcriterios={subcriterios}
-              evaluacionInicial={evaluacion}
-              calificacionesIniciales={calificaciones}
-              puntajeInicial={puntaje}
-              lotes={predio.lotes.map((l) => ({ id: l.id, codigoLote: l.codigoLote, registradoOnchain: !!l.loteIdOnchain }))}
-              token={token}
-            />
-          </div>
         </div>
       </div>
     </div>

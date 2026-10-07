@@ -715,8 +715,8 @@ export async function updatePredio(
   return rows[0] ?? null;
 }
 
-export async function listPredios(filtros: { agricultorId?: string; soloActivos?: boolean } = {}): Promise<
-  Array<Predio & { totalLotes: number; agricultor: AgricultorContacto | null; propietario: Propietario | null }>
+export async function listPredios(filtros: { agricultorId?: string; propietarioId?: string; soloActivos?: boolean } = {}): Promise<
+  Array<Predio & { totalLotes: number; totalParcelas: number; agricultor: AgricultorContacto | null; propietario: Propietario | null }>
 > {
   const conditions: string[] = [];
   const params: unknown[] = [];
@@ -724,18 +724,23 @@ export async function listPredios(filtros: { agricultorId?: string; soloActivos?
     params.push(filtros.agricultorId);
     conditions.push(`predios.agricultor_id = $${params.length}`);
   }
+  if (filtros.propietarioId) {
+    params.push(filtros.propietarioId);
+    conditions.push(`predios.propietario_id = $${params.length}`);
+  }
   if (filtros.soloActivos) {
     conditions.push(`predios.activo = true`);
   }
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
-  const { rows } = await pool.query<Predio & { totalLotes: number; agricultor: AgricultorContacto | null; propietario: Propietario | null }>(
+  const { rows } = await pool.query<Predio & { totalLotes: number; totalParcelas: number; agricultor: AgricultorContacto | null; propietario: Propietario | null }>(
     `SELECT
        ${PREDIO_COLUMNS},
        ${AGRICULTOR_PREDIO_COLUMNS},
        ${PROPIETARIO_PREDIO_COLUMNS},
        ${UBICACION_PREDIO_COLUMNS},
-       (SELECT count(*)::int FROM lotes l JOIN parcelas par ON par.id = l.parcela_id WHERE par.predio_id = predios.id) AS "totalLotes"
+       (SELECT count(*)::int FROM lotes l JOIN parcelas par ON par.id = l.parcela_id WHERE par.predio_id = predios.id) AS "totalLotes",
+       (SELECT count(*)::int FROM parcelas par WHERE par.predio_id = predios.id) AS "totalParcelas"
      FROM predios
      LEFT JOIN usuarios ag ON ag.id = predios.agricultor_id
      LEFT JOIN propietarios prop ON prop.id = predios.propietario_id
@@ -795,8 +800,13 @@ export async function getPredioConLotes(
 // usado en el detalle de parcela, mismo patron que getPredioConLotes.
 export async function getParcelaConLotes(
   id: string
-): Promise<(Parcela & { predioNombre: string | null; lotes: unknown[] }) | null> {
-  const { rows } = await pool.query<Parcela & { predioNombre: string | null }>(
+): Promise<
+  | (Parcela & { predioNombre: string | null; predioLatitud: number | null; predioLongitud: number | null; lotes: unknown[] })
+  | null
+> {
+  const { rows } = await pool.query<
+    Parcela & { predioNombre: string | null; predioLatitud: number | null; predioLongitud: number | null }
+  >(
     `SELECT
        parcelas.id,
        parcelas.predio_id       AS "predioId",
@@ -808,7 +818,9 @@ export async function getParcelaConLotes(
        parcelas.activo,
        parcelas.created_at      AS "createdAt",
        parcelas.updated_at      AS "updatedAt",
-       predios.nombre_predio    AS "predioNombre"
+       predios.nombre_predio    AS "predioNombre",
+       predios.latitud          AS "predioLatitud",
+       predios.longitud         AS "predioLongitud"
      FROM parcelas
      LEFT JOIN predios ON predios.id = parcelas.predio_id
      WHERE parcelas.id = $1`,

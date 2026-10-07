@@ -18,7 +18,17 @@ import {
   getPredioById,
   generarCodigoParcela,
   listPlantasDisponiblesParaLote,
+  getPoligonoVigentePorParcela,
+  listPoligonosPorParcela,
+  crearPoligonoVigenteParcela,
+  desactivarPoligonoVigenteParcela,
 } from "@agrochain/database";
+
+const PoligonoSchema = z.object({
+  geojson: z.record(z.unknown()),
+  areaHaCalculada: z.number().positive().optional(),
+  fuente: z.enum(["DIBUJADO_MANUAL", "GPS_CAMPO", "KML_IMPORTADO"]).optional(),
+});
 
 const CrearParcelaSchema = z.object({
   predioId: z.string().uuid(),
@@ -147,6 +157,90 @@ export async function parcelasRoutes(app: FastifyInstance) {
         return { success: true, data: existente };
       }
       return { success: true, data: actualizada };
+    }
+  );
+
+  // GET /api/parcelas/:id/poligono — vigente + historial de versiones
+  app.get<{ Params: { id: string } }>(
+    "/:id/poligono",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
+      const parcela = await getParcelaById(request.params.id);
+      if (!parcela) return reply.status(404).send({ message: "Parcela no encontrada" });
+
+      const [vigente, historial] = await Promise.all([
+        getPoligonoVigentePorParcela(request.params.id),
+        listPoligonosPorParcela(request.params.id),
+      ]);
+      if (!vigente) return reply.status(404).send({ message: "La parcela no tiene polígono registrado" });
+      return { poligono: vigente, historial };
+    }
+  );
+
+  // POST /api/parcelas/:id/poligono — registra una nueva version vigente
+  app.post<{ Params: { id: string } }>(
+    "/:id/poligono",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
+      const payload = (request as any).user as { sub: string; rol: string };
+      if (!["ADMIN", "AGRICULTOR"].includes(payload.rol)) {
+        return reply.status(403).send({ message: "Sin permisos para registrar el polígono de la parcela" });
+      }
+
+      const parcela = await getParcelaById(request.params.id);
+      if (!parcela) return reply.status(404).send({ message: "Parcela no encontrada" });
+
+      if (payload.rol === "AGRICULTOR") {
+        const predio = await getPredioById(parcela.predioId);
+        if (!predio || predio.agricultorId !== payload.sub) {
+          return reply.status(403).send({ message: "Un agricultor solo puede registrar el polígono de parcelas en predios propios" });
+        }
+      }
+
+      const parsed = PoligonoSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({ message: "Datos inválidos", errors: parsed.error.flatten() });
+      }
+
+      const poligono = await crearPoligonoVigenteParcela({
+        parcelaId: request.params.id,
+        geojson: parsed.data.geojson,
+        areaHaCalculada: parsed.data.areaHaCalculada ?? null,
+        fuente: parsed.data.fuente,
+        creadoPor: payload.sub,
+      });
+
+      return reply.status(201).send({ success: true, poligono });
+    }
+  );
+
+  // DELETE /api/parcelas/:id/poligono — desactiva la version vigente (no borra
+  // el historial, mismo principio de versionado que el resto del modulo)
+  app.delete<{ Params: { id: string } }>(
+    "/:id/poligono",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
+      const payload = (request as any).user as { sub: string; rol: string };
+      if (!["ADMIN", "AGRICULTOR"].includes(payload.rol)) {
+        return reply.status(403).send({ message: "Sin permisos para eliminar el polígono de la parcela" });
+      }
+
+      const parcela = await getParcelaById(request.params.id);
+      if (!parcela) return reply.status(404).send({ message: "Parcela no encontrada" });
+
+      if (payload.rol === "AGRICULTOR") {
+        const predio = await getPredioById(parcela.predioId);
+        if (!predio || predio.agricultorId !== payload.sub) {
+          return reply.status(403).send({ message: "Un agricultor solo puede eliminar el polígono de parcelas en predios propios" });
+        }
+      }
+
+      const eliminado = await desactivarPoligonoVigenteParcela(request.params.id);
+      if (!eliminado) {
+        return reply.status(404).send({ message: "La parcela no tiene polígono registrado" });
+      }
+
+      return { success: true };
     }
   );
 }

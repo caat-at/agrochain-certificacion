@@ -303,13 +303,15 @@ export function verificarCamposCompletos(
 // =============================================================================
 
 /**
- * Genera el hash de integridad de una declaracion EUDR (a nivel de Lote).
- * SHA256(loteId + poligonoId + fechaCorte + libreDeforestacion + declaradoPor + timestamp)
+ * Genera el hash de integridad de una declaracion EUDR (a nivel de Parcela —
+ * el area fisica de produccion que exige georreferenciar la norma, ver
+ * 15_eudr_via_parcela.sql).
+ * SHA256(parcelaId + poligonoId + fechaCorte + libreDeforestacion + declaradoPor + timestamp)
  * Se genera al crear la declaracion en estado BORRADOR y se recalcula al
  * verificar; una vez FIRMADA/ANCLADA_BLOCKCHAIN es inmutable (ver 02_eudr.sql).
  */
 export function generarContentHashDeclaracionEudr(data: {
-  loteId: string;
+  parcelaId: string;
   poligonoId: string;
   fechaCorte: string; // ISO date, ej. "2020-12-31"
   libreDeforestacion: boolean;
@@ -317,7 +319,7 @@ export function generarContentHashDeclaracionEudr(data: {
   timestamp: string; // ISO 8601 exacto
 }): string {
   const payload = JSON.stringify({
-    loteId: data.loteId,
+    parcelaId: data.parcelaId,
     poligonoId: data.poligonoId,
     fechaCorte: data.fechaCorte,
     libreDeforestacion: data.libreDeforestacion,

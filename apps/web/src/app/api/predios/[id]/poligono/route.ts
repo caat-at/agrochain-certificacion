@@ -12,7 +12,7 @@ export async function GET(
   }
 
   try {
-    const res = await fetch(`${API_URL}/api/propietarios/${params.id}`, {
+    const res = await fetch(`${API_URL}/api/predios/${params.id}/poligono`, {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
     });
@@ -23,7 +23,7 @@ export async function GET(
   }
 }
 
-export async function PATCH(
+export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
@@ -34,13 +34,34 @@ export async function PATCH(
 
   try {
     const body = await req.json();
-    const res = await fetch(`${API_URL}/api/propietarios/${params.id}`, {
-      method:  "PATCH",
+    const res = await fetch(`${API_URL}/api/predios/${params.id}/poligono`, {
+      method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization:  `Bearer ${token}`,
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    return NextResponse.json(data, { status: res.status });
+  } catch (e) {
+    return NextResponse.json({ message: String(e) }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const token = req.cookies.get("ac_token")?.value;
+  if (!token) {
+    return NextResponse.json({ message: "No autenticado" }, { status: 401 });
+  }
+
+  try {
+    const res = await fetch(`${API_URL}/api/predios/${params.id}/poligono`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
     });
     const data = await res.json();
     return NextResponse.json(data, { status: res.status });

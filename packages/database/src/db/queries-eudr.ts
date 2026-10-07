@@ -1,102 +1,25 @@
 import pool from "./client.js";
-import type { LotePoligono, EudrDeclaracion, EudrEvidenciaSatelital } from "../types.js";
+import type { EudrDeclaracion, EudrEvidenciaSatelital } from "../types.js";
+import { getPoligonoVigentePorParcela } from "./queries-poligonos.js";
 
 // =============================================================================
 // AGROCHAIN - Modulo EUDR (Reglamento UE 2023/1115, deforestacion-cero)
-// Vinculado a nivel de LOTE (ver packages/database/sql/02_eudr.sql).
+// Vinculado a nivel de PARCELA (area fisica de produccion que exige
+// georreferenciar la norma — ver packages/database/sql/15_eudr_via_parcela.sql).
+// EUDR no tiene poligono propio: usa el poligono GENERAL de la parcela
+// (parcela_poligonos, el mismo que el usuario dibuja con el mapa interactivo
+// en el detalle de parcela) — ver 16_eudr_usa_poligono_parcela.sql. Esto evita
+// pedir dos veces el mismo dato geografico en formularios distintos.
 // Mismo patron: SQL directo, alias camelCase, seccion separada de queries.ts
 // por dominio, igual que queries-campanas.ts.
 // =============================================================================
-
-// ── Poligono georreferenciado ────────────────────────────────────────────────
-
-const POLIGONO_COLUMNS = `
-  id,
-  lote_id             AS "loteId",
-  geojson,
-  area_ha_calculada   AS "areaHaCalculada",
-  fuente,
-  version,
-  vigente,
-  creado_por          AS "creadoPor",
-  created_at          AS "createdAt"
-`;
-
-export async function getPoligonoVigentePorLote(loteId: string): Promise<LotePoligono | null> {
-  const { rows } = await pool.query<LotePoligono>(
-    `SELECT ${POLIGONO_COLUMNS} FROM lote_poligonos WHERE lote_id = $1 AND vigente = true`,
-    [loteId]
-  );
-  return rows[0] ?? null;
-}
-
-export async function listPoligonosPorLote(loteId: string): Promise<LotePoligono[]> {
-  const { rows } = await pool.query<LotePoligono>(
-    `SELECT ${POLIGONO_COLUMNS} FROM lote_poligonos WHERE lote_id = $1 ORDER BY version DESC`,
-    [loteId]
-  );
-  return rows;
-}
-
-export async function getPoligonoById(id: string): Promise<LotePoligono | null> {
-  const { rows } = await pool.query<LotePoligono>(`SELECT ${POLIGONO_COLUMNS} FROM lote_poligonos WHERE id = $1`, [id]);
-  return rows[0] ?? null;
-}
-
-export interface CreatePoligonoBody {
-  loteId: string;
-  geojson: Record<string, unknown>;
-  areaHaCalculada?: number | null;
-  fuente?: string;
-  creadoPor: string;
-}
-
-// Crea una nueva version del poligono del lote, marcando la anterior como no
-// vigente — nunca se edita in-place, se versiona (mismo principio que el
-// resto del sistema: preservar el historial para auditoria).
-export async function crearPoligonoVigente(body: CreatePoligonoBody): Promise<LotePoligono> {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-
-    const { rows: maxRows } = await client.query<{ max: number | null }>(
-      `SELECT max(version) AS max FROM lote_poligonos WHERE lote_id = $1`,
-      [body.loteId]
-    );
-    const nuevaVersion = (maxRows[0].max ?? 0) + 1;
-
-    await client.query(`UPDATE lote_poligonos SET vigente = false WHERE lote_id = $1 AND vigente = true`, [body.loteId]);
-
-    const { rows } = await client.query<LotePoligono>(
-      `INSERT INTO lote_poligonos (lote_id, geojson, area_ha_calculada, fuente, version, vigente, creado_por)
-       VALUES ($1,$2::jsonb,$3,$4,$5,true,$6)
-       RETURNING ${POLIGONO_COLUMNS}`,
-      [
-        body.loteId,
-        JSON.stringify(body.geojson),
-        body.areaHaCalculada ?? null,
-        body.fuente ?? "DIBUJADO_MANUAL",
-        nuevaVersion,
-        body.creadoPor,
-      ]
-    );
-
-    await client.query("COMMIT");
-    return rows[0];
-  } catch (e) {
-    await client.query("ROLLBACK");
-    throw e;
-  } finally {
-    client.release();
-  }
-}
 
 // ── Declaracion EUDR ─────────────────────────────────────────────────────────
 
 const DECLARACION_COLUMNS = `
   id,
-  lote_id               AS "loteId",
-  poligono_id           AS "poligonoId",
+  parcela_id            AS "parcelaId",
+  poligono_parcela_id   AS "poligonoId",
   fecha_corte           AS "fechaCorte",
   libre_deforestacion   AS "libreDeforestacion",
   fecha_declaracion     AS "fechaDeclaracion",
@@ -108,13 +31,13 @@ const DECLARACION_COLUMNS = `
   created_at            AS "createdAt"
 `;
 
-export async function getDeclaracionVigentePorLote(loteId: string): Promise<EudrDeclaracion | null> {
+export async function getDeclaracionVigentePorParcela(parcelaId: string): Promise<EudrDeclaracion | null> {
   const { rows } = await pool.query<EudrDeclaracion>(
     `SELECT ${DECLARACION_COLUMNS} FROM eudr_declaraciones
-     WHERE lote_id = $1
+     WHERE parcela_id = $1
      ORDER BY created_at DESC
      LIMIT 1`,
-    [loteId]
+    [parcelaId]
   );
   return rows[0] ?? null;
 }
@@ -128,8 +51,8 @@ export async function getDeclaracionById(id: string): Promise<EudrDeclaracion | 
 }
 
 export interface CreateDeclaracionBody {
-  loteId: string;
-  poligonoId: string;
+  parcelaId: string;
+  poligonoId: string; // id de parcela_poligonos (el poligono general vigente)
   fechaCorte?: string; // default '2020-12-31' en DB
   libreDeforestacion: boolean;
   declaradoPor: string;
@@ -140,11 +63,11 @@ export interface CreateDeclaracionBody {
 export async function createDeclaracionEudr(body: CreateDeclaracionBody): Promise<EudrDeclaracion> {
   const { rows } = await pool.query<EudrDeclaracion>(
     `INSERT INTO eudr_declaraciones
-       (lote_id, poligono_id, fecha_corte, libre_deforestacion, declarado_por, content_hash, observaciones, estado)
+       (parcela_id, poligono_parcela_id, fecha_corte, libre_deforestacion, declarado_por, content_hash, observaciones, estado)
      VALUES ($1,$2,COALESCE($3::date,'2020-12-31'),$4,$5,$6,$7,'BORRADOR')
      RETURNING ${DECLARACION_COLUMNS}`,
     [
-      body.loteId,
+      body.parcelaId,
       body.poligonoId,
       body.fechaCorte ?? null,
       body.libreDeforestacion,
@@ -225,8 +148,8 @@ export async function listEvidenciasSatelitales(declaracionId: string): Promise<
 
 // ── Estado resumen y elegibilidad para certificado STBN ──────────────────────
 
-export interface EudrEstadoLote {
-  loteId: string;
+export interface EudrEstadoParcela {
+  parcelaId: string;
   tienePoligono: boolean;
   poligonoVersion: number | null;
   tieneDeclaracionVigente: boolean;
@@ -237,9 +160,11 @@ export interface EudrEstadoLote {
   evidenciasCount: number;
 }
 
-export async function getEudrEstadoLote(loteId: string): Promise<EudrEstadoLote> {
-  const poligono = await getPoligonoVigentePorLote(loteId);
-  const declaracion = await getDeclaracionVigentePorLote(loteId);
+export async function getEudrEstadoParcela(parcelaId: string): Promise<EudrEstadoParcela> {
+  const [poligono, declaracion] = await Promise.all([
+    getPoligonoVigentePorParcela(parcelaId),
+    getDeclaracionVigentePorParcela(parcelaId),
+  ]);
 
   let evidenciasCount = 0;
   if (declaracion) {
@@ -256,7 +181,7 @@ export async function getEudrEstadoLote(loteId: string): Promise<EudrEstadoLote>
     declaracion.libreDeforestacion === true;
 
   return {
-    loteId,
+    parcelaId,
     tienePoligono: !!poligono,
     poligonoVersion: poligono?.version ?? null,
     tieneDeclaracionVigente: !!declaracion,

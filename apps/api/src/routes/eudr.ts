@@ -1,8 +1,16 @@
 /**
  * Modulo EUDR (Reglamento UE 2023/1115, deforestacion-cero) — requisito para
  * la certificacion STBN (PNSS 0000404, PlanetAI Nature Space). Vinculado a
- * nivel de LOTE: el documento STBN exige georreferenciar "production areas"
- * especificas, no el predio completo.
+ * nivel de PARCELA: el documento STBN exige georreferenciar "production
+ * areas" fisicas — el area de terreno, no el ciclo de cosecha (lote). Una
+ * misma parcela produce muchos lotes a lo largo del tiempo, y todos comparten
+ * el mismo poligono y la misma declaracion de libre-deforestacion.
+ *
+ * EUDR no tiene su propio poligono: usa el poligono GENERAL de la parcela
+ * (modulo de trazabilidad en routes/parcelas.ts, mismo que se dibuja con el
+ * mapa interactivo en el detalle de parcela) — ver
+ * sql/16_eudr_usa_poligono_parcela.sql. Evita pedir el mismo dato geografico
+ * dos veces en formularios distintos.
  *
  * Solo modelo de datos + flujo manual: sin integracion a APIs satelitales.
  * La evidencia satelital se carga como documento (foto/PDF/reporte) con su
@@ -13,31 +21,19 @@ import { z } from "zod";
 import { randomUUID, createHash } from "crypto";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import {
-  getLoteById,
+  getParcelaById,
   generarContentHashDeclaracionEudr,
-  getPoligonoVigentePorLote,
-  listPoligonosPorLote,
-  crearPoligonoVigente,
-  getPoligonoById,
-  getDeclaracionVigentePorLote,
+  getPoligonoVigentePorParcela,
+  getDeclaracionVigentePorParcela,
   getDeclaracionById,
   createDeclaracionEudr,
   firmarDeclaracionEudr,
-  updateDeclaracionTxHash,
   createEvidenciaSatelital,
   listEvidenciasSatelitales,
-  getEudrEstadoLote,
+  getEudrEstadoParcela,
   createEvidenciaBinaria,
 } from "@agrochain/database";
 import { s3, S3_BUCKET, signEvidenciaUrl } from "../services/s3.js";
-import { enqueue } from "../blockchain/writer.js";
-import { isConfigured } from "../services/blockchain.js";
-
-const PoligonoSchema = z.object({
-  geojson: z.record(z.unknown()),
-  areaHaCalculada: z.number().positive().optional(),
-  fuente: z.enum(["DIBUJADO_MANUAL", "GPS_CAMPO", "KML_IMPORTADO"]).optional(),
-});
 
 const DeclaracionSchema = z.object({
   libreDeforestacion: z.boolean(),
@@ -55,71 +51,29 @@ function extOf(name: string): string {
 }
 
 export async function eudrRoutes(app: FastifyInstance) {
-  // ── POST /api/eudr/lotes/:loteId/poligono ──────────────────────────────
-  app.post<{ Params: { loteId: string } }>(
-    "/lotes/:loteId/poligono",
+  // ── POST /api/eudr/parcelas/:parcelaId/declaracion ─────────────────────
+  // Requiere que la parcela ya tenga un poligono GENERAL vigente (se dibuja
+  // en el detalle de parcela, POST /api/parcelas/:id/poligono) — EUDR lo usa
+  // directamente, no pide uno propio.
+  app.post<{ Params: { parcelaId: string } }>(
+    "/parcelas/:parcelaId/declaracion",
     { preHandler: [(app as any).authenticate] },
     async (request, reply) => {
       const payload = (request as any).user as { sub: string; rol: string };
-      const { loteId } = request.params;
-
-      if (!["ADMIN", "TECNICO", "AGRICULTOR"].includes(payload.rol)) {
-        return reply.status(403).send({ message: "Sin permisos para registrar el polígono del lote" });
-      }
-
-      const lote = await getLoteById(loteId);
-      if (!lote) return reply.status(404).send({ message: "Lote no encontrado" });
-
-      const parsed = PoligonoSchema.safeParse(request.body);
-      if (!parsed.success) {
-        return reply.status(400).send({ message: "Datos inválidos", errors: parsed.error.flatten() });
-      }
-
-      const poligono = await crearPoligonoVigente({
-        loteId,
-        geojson: parsed.data.geojson,
-        areaHaCalculada: parsed.data.areaHaCalculada ?? null,
-        fuente: parsed.data.fuente,
-        creadoPor: payload.sub,
-      });
-
-      return reply.status(201).send({ success: true, poligono });
-    }
-  );
-
-  // ── GET /api/eudr/lotes/:loteId/poligono ───────────────────────────────
-  app.get<{ Params: { loteId: string } }>(
-    "/lotes/:loteId/poligono",
-    { preHandler: [(app as any).authenticate] },
-    async (request, reply) => {
-      const { loteId } = request.params;
-      const [vigente, historial] = await Promise.all([
-        getPoligonoVigentePorLote(loteId),
-        listPoligonosPorLote(loteId),
-      ]);
-      if (!vigente) return reply.status(404).send({ message: "El lote no tiene polígono registrado" });
-      return { poligono: vigente, historial };
-    }
-  );
-
-  // ── POST /api/eudr/lotes/:loteId/declaracion ───────────────────────────
-  app.post<{ Params: { loteId: string } }>(
-    "/lotes/:loteId/declaracion",
-    { preHandler: [(app as any).authenticate] },
-    async (request, reply) => {
-      const payload = (request as any).user as { sub: string; rol: string };
-      const { loteId } = request.params;
+      const { parcelaId } = request.params;
 
       if (!["ADMIN", "AGRICULTOR", "CERTIFICADORA"].includes(payload.rol)) {
         return reply.status(403).send({ message: "Sin permisos para declarar cumplimiento EUDR" });
       }
 
-      const lote = await getLoteById(loteId);
-      if (!lote) return reply.status(404).send({ message: "Lote no encontrado" });
+      const parcela = await getParcelaById(parcelaId);
+      if (!parcela) return reply.status(404).send({ message: "Parcela no encontrada" });
 
-      const poligono = await getPoligonoVigentePorLote(loteId);
+      const poligono = await getPoligonoVigentePorParcela(parcelaId);
       if (!poligono) {
-        return reply.status(400).send({ message: "El lote debe tener un polígono registrado antes de declarar EUDR" });
+        return reply.status(400).send({
+          message: "La parcela debe tener un polígono registrado antes de declarar EUDR — dibújalo en el detalle de la parcela",
+        });
       }
 
       const parsed = DeclaracionSchema.safeParse(request.body);
@@ -130,7 +84,7 @@ export async function eudrRoutes(app: FastifyInstance) {
       const fechaCorte = parsed.data.fechaCorte ?? "2020-12-31";
       const timestamp = new Date().toISOString();
       const contentHash = generarContentHashDeclaracionEudr({
-        loteId,
+        parcelaId,
         poligonoId: poligono.id,
         fechaCorte,
         libreDeforestacion: parsed.data.libreDeforestacion,
@@ -139,7 +93,7 @@ export async function eudrRoutes(app: FastifyInstance) {
       });
 
       const declaracion = await createDeclaracionEudr({
-        loteId,
+        parcelaId,
         poligonoId: poligono.id,
         fechaCorte,
         libreDeforestacion: parsed.data.libreDeforestacion,
@@ -188,26 +142,16 @@ export async function eudrRoutes(app: FastifyInstance) {
       if (declaracion.estado !== "FIRMADA") {
         return reply.status(400).send({ message: "La declaración debe estar FIRMADA para anclar en blockchain" });
       }
-      if (!isConfigured()) {
-        return reply.status(503).send({ message: "Blockchain no configurado en el servidor" });
-      }
 
-      enqueue({
-        kind: "registrarEvento",
-        payload: {
-          loteId: declaracion.loteId,
-          tipoEvento: `EUDR_DECLARACION:${declaracion.id}`,
-          contentHash: declaracion.contentHash,
-        },
-        onSuccess: async (result) => {
-          await updateDeclaracionTxHash(declaracion.id, result.txHash);
-        },
-        onError: async (err) => {
-          console.error(`[eudr] Error anclando declaración ${declaracion.id} en blockchain:`, err);
-        },
+      // El anclaje on-chain de declaraciones EUDR (a nivel de PARCELA) requiere
+      // un contrato propio — LoteRegistry.registrarEvento() exige un loteId ya
+      // existente on-chain (modifier loteExiste), y una parcela no es un lote.
+      // Pendiente: desplegar un contrato EudrRegistry/ParcelaRegistry dedicado.
+      return reply.status(501).send({
+        message:
+          "El anclaje en blockchain de declaraciones EUDR aún no está disponible — requiere un contrato " +
+          "dedicado para parcelas (en desarrollo). La declaración queda FIRMADA y es válida para certificación.",
       });
-
-      return { success: true, ancladoEnCola: true, mensaje: "Anclaje encolado — consulta GET /lotes/:loteId/estado para ver el txHash una vez confirmado." };
     }
   );
 
@@ -285,17 +229,17 @@ export async function eudrRoutes(app: FastifyInstance) {
     }
   );
 
-  // ── GET /api/eudr/lotes/:loteId/estado ─────────────────────────────────
+  // ── GET /api/eudr/parcelas/:parcelaId/estado ───────────────────────────
   // Resumen para el checklist de certificacion STBN — usado tambien por la
   // ruta de emision de certificados para validar elegibilidad.
-  app.get<{ Params: { loteId: string } }>(
-    "/lotes/:loteId/estado",
+  app.get<{ Params: { parcelaId: string } }>(
+    "/parcelas/:parcelaId/estado",
     { preHandler: [(app as any).authenticate] },
     async (request, reply) => {
-      const lote = await getLoteById(request.params.loteId);
-      if (!lote) return reply.status(404).send({ message: "Lote no encontrado" });
+      const parcela = await getParcelaById(request.params.parcelaId);
+      if (!parcela) return reply.status(404).send({ message: "Parcela no encontrada" });
 
-      const estado = await getEudrEstadoLote(request.params.loteId);
+      const estado = await getEudrEstadoParcela(request.params.parcelaId);
       return { estado };
     }
   );

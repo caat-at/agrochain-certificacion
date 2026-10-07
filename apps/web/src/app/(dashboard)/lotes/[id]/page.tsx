@@ -12,7 +12,6 @@ import { NuevaPlantaForm } from "./NuevaPlantaForm";
 import { VincularPlantaBtn } from "./VincularPlantaBtn";
 import { NuevoEventoForm } from "./NuevoEventoForm";
 import { EditarLoteBtn } from "../EditarLoteBtn";
-import { EudrSeccion, type EudrEstadoLote } from "./EudrSeccion";
 import { getSession } from "@/lib/auth";
 
 interface CampanaLote {
@@ -94,23 +93,20 @@ export default async function LoteDetallePage({
   let lote: LoteDetalle;
   let campanas: CampanaLote[] = [];
   let plantas: PlantaLote[] = [];
-  let eudrEstado: EudrEstadoLote | null = null;
 
   const token = cookies().get("ac_token")?.value ?? "";
   const session = await getSession();
 
   try {
-    const [resLote, resCampanas, resPlantas, resEudr] = await Promise.all([
+    const [resLote, resCampanas, resPlantas] = await Promise.all([
       apiFetch<{ success: boolean; data: LoteDetalle }>(`/api/lotes/${id}`),
       apiFetch<{ campanas: CampanaLote[] }>(`/api/campanas?loteId=${id}`).catch(() => ({ campanas: [] })),
       apiFetch<{ plantas: PlantaLote[] }>(`/api/lotes/${id}/plantas`).catch(() => ({ plantas: [] })),
-      apiFetch<{ estado: EudrEstadoLote }>(`/api/eudr/lotes/${id}/estado`).catch(() => null),
     ]);
     if (!resLote.success) notFound();
     lote = resLote.data;
     campanas = resCampanas.campanas;
     plantas = resPlantas.plantas;
-    eudrEstado = resEudr?.estado ?? null;
   } catch {
     notFound();
   }
@@ -258,12 +254,6 @@ export default async function LoteDetallePage({
               </div>
             </div>
             <PlantasGrid plantas={plantas} />
-          </div>
-
-          {/* EUDR — deforestación cero (Reglamento UE 2023/1115) */}
-          <div className="card">
-            <h2 className="font-semibold text-gray-800 mb-4">EUDR — Deforestación cero</h2>
-            <EudrSeccion loteId={lote.id} estadoInicial={eudrEstado} token={token} />
           </div>
 
           {/* Campañas del lote */}

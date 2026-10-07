@@ -456,9 +456,21 @@ export interface VerificacionHashCampana {
 
 export type EstadoDeclaracionEudr = "BORRADOR" | "FIRMADA" | "ANCLADA_BLOCKCHAIN" | "RECHAZADA";
 
-export interface LotePoligono {
+export interface PredioPoligono {
   id: string;
-  loteId: string;
+  predioId: string;
+  geojson: Record<string, unknown>;
+  areaHaCalculada: number | null;
+  fuente: string;
+  version: number;
+  vigente: boolean;
+  creadoPor: string;
+  createdAt: Date;
+}
+
+export interface ParcelaPoligono {
+  id: string;
+  parcelaId: string;
   geojson: Record<string, unknown>;
   areaHaCalculada: number | null;
   fuente: string;
@@ -470,7 +482,7 @@ export interface LotePoligono {
 
 export interface EudrDeclaracion {
   id: string;
-  loteId: string;
+  parcelaId: string;
   poligonoId: string;
   fechaCorte: string;
   libreDeforestacion: boolean;

@@ -1,5 +1,6 @@
 "use client";
 import { useState, useMemo } from "react";
+import Link from "next/link";
 import { EditarParcelaBtn } from "./EditarParcelaBtn";
 
 interface ParcelaItem {
@@ -126,6 +127,7 @@ export function ParcelasTabla({ parcelas, predios, puedeEditar }: { parcelas: Pa
                 </div>
               </th>
               {puedeEditar && <th className="text-left px-4 py-3 font-medium text-gray-500">Acciones</th>}
+              <th className="text-right px-4 py-3 font-medium text-gray-500"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
@@ -146,11 +148,16 @@ export function ParcelasTabla({ parcelas, predios, puedeEditar }: { parcelas: Pa
                     <EditarParcelaBtn parcela={p} />
                   </td>
                 )}
+                <td className="px-4 py-3 text-right">
+                  <Link href={`/parcelas/${p.id}`} className="text-xs text-verde-500 hover:text-verde-600 font-medium">
+                    Ver detalle →
+                  </Link>
+                </td>
               </tr>
             ))}
             {filtradas.length === 0 && (
               <tr>
-                <td colSpan={puedeEditar ? 7 : 6} className="px-4 py-12 text-center text-gray-400">
+                <td colSpan={puedeEditar ? 8 : 7} className="px-4 py-12 text-center text-gray-400">
                   Sin parcelas que coincidan con los filtros
                 </td>
               </tr>
