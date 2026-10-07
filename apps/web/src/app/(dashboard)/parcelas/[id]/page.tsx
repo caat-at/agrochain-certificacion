@@ -55,6 +55,7 @@ export default async function ParcelaDetallePage({ params }: { params: { id: str
   let parcela: ParcelaDetalle;
   let poligono: PoligonoVigente | null = null;
   let poligonoPredio: PoligonoVigente | null = null;
+  let poligonosHermanasVisibles = 0;
   const capasReferencia: { geojson: PoligonoVigente["geojson"]; color: string; etiqueta: string }[] = [];
   try {
     const res = await apiFetch<{ success: boolean; data: ParcelaDetalle }>(`/api/parcelas/${id}`);
@@ -93,6 +94,7 @@ export default async function ParcelaDetallePage({ params }: { params: { id: str
           color: PALETA_PARCELAS[i % PALETA_PARCELAS.length],
           etiqueta: resHermanas[i].codigoParcela,
         });
+        poligonosHermanasVisibles++;
       }
     });
   } catch {
@@ -136,9 +138,11 @@ export default async function ParcelaDetallePage({ params }: { params: { id: str
             color="#e11d48"
             capasReferencia={capasReferencia}
           />
-          {capasReferencia.length > 0 && (
+          {(poligonoPredio || poligonosHermanasVisibles > 0) && (
             <p className="text-xs text-gray-400 mt-2">
-              El trazo azul punteado muestra el límite del predio; los demás colores son las otras parcelas del mismo predio.
+              {poligonoPredio && "El trazo azul punteado muestra el límite del predio. "}
+              {poligonosHermanasVisibles > 0 &&
+                `Los demás trazos punteados de color son ${poligonosHermanasVisibles === 1 ? "la otra parcela" : "las otras parcelas"} del mismo predio.`}
             </p>
           )}
         </div>
