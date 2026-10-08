@@ -4,11 +4,13 @@
 > reinicia, leer esto primero para recuperar el contexto sin preguntar nada.
 > Actualizar al cerrar cada bloque de trabajo.
 
-**Última actualización:** 2026-10-06
-**Rama:** `main` · **HEAD:** `c312ce3` · 5 commits locales sin pushear
-> `origin/main` trae **`3da4e7e`** (push del compañero el 2026-10-06): campo Operador
-> (agricultor) en el formulario de editar predio — solo web; la API ya soportaba
-> `agricultorId`. Se integró con rebase (estaban 5 adelante / 1 detrás).
+**Última actualización:** 2026-10-07
+**Rama:** `main` · **HEAD:** `c67629a` · sincronizado con `origin/main`.
+> El compañero pusheó el 2026-10-06 tres commits (ya integrados con rebase/pull):
+> `3da4e7e` (campo Operador/agricultor en editar predio), `821f14a` (detalle de
+> predio muestra **parcelas** en vez de lotes; nueva página `parcelas/[id]`),
+> `e51d9eb` (**polígonos georreferenciados** predio/parcela + hub de certificación
+> EUDR/STBN/Bonos de Carbono) y `c67629a` (fix del texto del mapa de parcela).
 **Equipo:** 2 personas trabajando como 1.
 
 ---
@@ -89,6 +91,17 @@ El default de la BD coincide con el rol que crea `packages/database/sql/00_schem
 ---
 
 ## 3. Estado: hecho
+
+### 2026-10-07 — Historial satelital de lotes: contrato preparado (sin API aún)
+- **Siguiente módulo acordado:** apartado **Historial** de fotos **satelitales**
+  (true color + NDVI, línea de tiempo) dentro del detalle del **lote**, usando
+  las APIs de **Terrasacha** (API key). No se construyó nada aún: el usuario
+  no tiene los endpoints del proveedor para hoy.
+- **Dejado listo:** `docs/TERRASACHA_CONTRACT.md` — decisiones cerradas,
+  arquitectura del proxy, contrato de respuesta propuesto, checklist de build.
+- Infra geo ya disponible del `e51d9eb`: `parcela_poligonos`/`predio_poligonos`
+  (GeoJSON versionado), rutas `GET/POST/DELETE /api/{parcelas,predios}/:id/poligono`,
+  mapa Leaflet (`PoligonoMapa.tsx`). El polígono de la **parcela** será el AOI.
 
 ### 2026-10-06 — Blockchain real en Polygon Amoy + flujo end-to-end
 
@@ -238,6 +251,11 @@ Sigue **sin CI**. Falta el test de paridad de hash servidor-vs-cliente (§5, rie
    Polygon, bcrypt en vez de Cognito.
 3. **Cada dev con su propio `docker-compose`** → parametrizar puertos.
 4. **Tests antes de decidir arquitectura.** No reescribir a ciegas.
+5. **Historial satelital de lotes (Terra Sàtcha, decidido 2026-10-07).** Vive
+   solo en el detalle del lote, muestra true color + NDVI en línea de tiempo,
+   **solo consulta en vivo** (sin persistencia propia), y la API key vive en el
+   backend (`TERRASACHA_API_KEY`), nunca en el browser. AOI = polígono vigente
+   de la parcela del lote. Contrato: `docs/TERRASACHA_CONTRACT.md`.
 
 ---
 
