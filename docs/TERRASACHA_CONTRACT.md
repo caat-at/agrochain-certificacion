@@ -1,91 +1,136 @@
 # Contrato de integración Terrasacha — Historial satelital de lotes
 
-> **Estado:** BORRADOR. Pendiente la documentación oficial de la API (endpoints,
-> autenticación, formato de respuesta). Este documento fija las decisiones ya
-> tomadas y el contrato esperado para que mañana se construya sin fricción.
+> **Estado:** VIGENTE. Contrato verificado contra el código del proveedor
+> (repos `geoMapasDocker` backend FastAPI, `oraculo_terrasacha` Flutter) el
+> 2026-10-07. Implementado en AgroChain en los commits `75f34af`, `8deac2b`
+> y `a011dfd`.
 
 ## Objetivo
 
-Mostrar en el detalle de un **lote** un apartado **Historial** con imágenes
-satelitales del área de producción (polígono de la parcela del lote), lo que
-permite ver la evolución del predio en el tiempo (color real + vegetación NDVI).
+Mostrar en el detalle de un **lote** un apartado **Historial satelital** con
+imágenes del área de producción (polígono de la parcela del lote) para ver la
+evolución del predio en el tiempo.
 
-## Decisiones cerradas (2026-10-07)
+## Decisiones cerradas
 
-1. **La UI vive solo en el lote**: sección `Historial satelital` dentro de
+1. **La UI vive solo en el lote**: componente `HistorialSatelital.tsx` dentro de
    `apps/web/src/app/(dashboard)/lotes/[id]/page.tsx`.
-2. **Tipos de imagen**: true color (RGB) **y** NDVI, en línea de tiempo.
-3. **Solo consulta en vivo**: NO se persisten las imágenes en BD; cada fecha se
-   consulta al proveedor bajo demanda.
-4. **La API key nunca llega al browser**: se configura como variable de entorno
-   del backend (`TERRASACHA_API_KEY`) y un proxy propio de AgroChain la usa.
+2. **Solo true color (RGB)**. NDVI **no** está expuesto por la API de imágenes
+   del proveedor (solo existe en el pipeline de ML/biomasa de `analisis/routes.py`,
+   fuera de alcance). Los satélites true color usan `B4,B3,B2`.
+3. **Solo consulta en vivo**: NO se persisten las imágenes en BD; cada búsqueda
+   va contra el proveedor bajo demanda.
+4. **Las credenciales nunca llegan al browser**: viven en env del backend
+   (`TERRASACHA_USERNAME` / `TERRASACHA_PASSWORD`) y el proxy propio de AgroChain
+   las usa. Auth por **cuenta de servicio Cognito** (USER_PASSWORD_AUTH).
 5. **Entrada geoespacial**: el polígono vigente de la **parcela** del lote
    (`parcela_poligonos`, tabla `14_poligonos_predio_parcela.sql`) es el área de
    interés (AOI). El lote resuelve su parcela vía `parcelaId`.
 
-## Contexto geoespacial disponible (ya existe)
+## Backend del proveedor
 
-- `parcela_poligonos`: GeoJSON crudo en `geojson jsonb`, versionado, índice único
-  de vigente. Rutas: `GET/POST/DELETE /api/parcelas/:id/poligono`
-  (`apps/api/src/routes/parcelas.ts:163-273`).
-- `predio_poligonos`: mismo patrón a nivel predio (`apps/api/src/routes/predios.ts:204`).
-- Mapa Leaflet ya integrado: `apps/web/src/components/PoligonoMapa.tsx` (modo
-  `soloLectura` ideal para superponer imágenes sin edición).
-- `GET /api/lotes/:id` (`apps/api/src/routes/lotes.ts:109`) devuelve `parcelaId`
-  y `parcelaNombre`. El detalle de lote ya las consume (`lotes/[id]/page.tsx:33`).
+- **Base URL:** `https://qi3fmd7w53.us-east-1.awsapprunner.com` (FastAPI, App Runner).
+- **Auth:** `POST /api/v1/login` con
+  `{ "AuthFlow": "USER_PASSWORD_AUTH", "ClientId": "5hqqat9foeutr909sr19o7jse0",
+     "AuthParameters": { "USERNAME": "...", "PASSWORD": "..." } }`
+  → `AuthenticationResult.IdToken` (Bearer en el resto de llamadas).
+  - La cuenta de servicio necesita permiso sobre el tag **`analisis`**
+    (`require_permission`; admin o grupo `DNT_DEFAULT_GROUP` pasan).
+  - `X-Internal-Token` existe en el código pero **no está cableado**: no sirve de bypass.
+- **Endpoints usados:**
+  - `POST /api/v1/satellites-imagenes/search`
+    - body: `{ satellite, coordenadas: [[lon,lat],...], year_initial, month_initial,
+      day_initial, year_final, month_final, day_final, nubosidad }`
+    - resp: `{ images: [{ id, fecha, satellite_id, satelite, nubosidad }], total_encontradas }`
+  - `POST /api/v1/previsualizar-imagen`
+    - body: `{ image_id, satellite, bandas: ["B4","B3","B2"], coordenadas: [[lon,lat],...] }`
+    - resp: `{ tiles, min, max, name }` — `tiles` es una plantilla XYZ de Earth Engine.
+  - `GET /api/v1/satellites/catalog` — catálogo de satélites y bandas (no usado aún).
+- **Satélites soportados:** `S2` (Sentinel-2 SR, 10 m — recomendado), `LC08`/`LC09`
+  (Landsat 8/9, 30 m), `S1` (SAR, solo polarizaciones), `ALOS`, `MOD13A1`/`MOD11A1`/`MOD14A1`.
+- **Formato de coordenadas:** anillo **cerrado** `[[lon,lat],...]` (el backend
+  lo pasa a `ee.Geometry.Polygon`).
 
-## Arquitectura prevista
+## Arquitectura implementada
 
 ```
-lotes/[id]/page.tsx (Historial satelital)
-        │  GET /api/lotes/:id/satelital (autenticado, proxy propio)
+lotes/[id]/page.tsx
+  └─ HistorialSatelital.tsx (client, Leaflet)
+        │  GET /api/lotes/:id/satelital?satellite&desde&hasta&nubosidad
+        │  GET /api/lotes/:id/satelital/preview?imageId&satellite&bandas
         ▼
-apps/api/src/routes/lotes.ts
-        │  resuelve parcelaId → poligono vigente (parcela_poligonos)
-        │  llama a la API de Terrasacha con TERRASACHA_API_KEY
+apps/web/src/app/api/lotes/[id]/satelital/...  (route handlers proxy → API)
         ▼
-respuesta JSON estandarizada para la web (ver contrato abajo)
+apps/api/src/routes/lotes.ts  (autenticado, acotado por alcance)
+        │  resuelve parcelaId → polígono vigente (parcela_poligonos)
+        ▼
+apps/api/src/services/terrasacha.ts  (login cacheado + buscarEscenas + previsualizar)
+        ▼
+API Terrasacha
 ```
 
-## Contrato de respuesta esperado del proxy (a zapear cuando llegue la API real)
+### Piezas
+
+| Archivo | Rol |
+|---|---|
+| `apps/api/src/services/terrasacha.ts` | Cliente: login Cognito con caché de IdToken, `buscarEscenas`, `previsualizarEscena`, `coordenadasParcelaDesdeGeoJson`, `isTerrasachaConfigured`. |
+| `apps/api/src/routes/lotes.ts` | Rutas proxy `GET /api/lotes/:id/satelital` y `.../satelital/preview`. |
+| `apps/web/src/app/api/lotes/[id]/satelital/route.ts` | Route handler proxy (busca escenas). |
+| `apps/web/src/app/api/lotes/[id]/satelital/preview/route.ts` | Route handler proxy (previsualización). |
+| `apps/web/src/app/(dashboard)/lotes/[id]/HistorialSatelital.tsx` | UI Leaflet: filtros, lista de escenas, overlay de tiles. |
+
+## Respuesta del proxy (la que consume la web)
+
+`GET /api/lotes/:id/satelital`:
 
 ```jsonc
 {
-  "loteId": "uuid",
-  "parcelaId": "uuid",
-  "poligono": { "geojson": {...}, "areaHaCalculada": 12.5, "fuente": "manual" },
-  "imagenes": [
-    {
-      "tipo": "TRUE_COLOR" | "NDVI" | "TRUE_COLOR_MASKED" | "NDVI_MASKED",
-      "fecha": "2026-09-15",
-      "url": "https://cdn.terrasatcha.../imagen.png",
-      "coberturaNube": 8.2,
-      "resolucionM": 10
-    }
-  ]
+  "success": true,
+  "satelite": "S2",
+  "desde": "2025-10-07",
+  "hasta": "2026-10-07",
+  "images": [
+    { "id": "COPERNICUS/S2_SR_HARMONIZED/...", "fecha": "2026-09-15",
+      "satellite_id": "S2", "satelite": "Sentinel 2 SR - Surface Reflectance", "nubosidad": 8.2 }
+  ],
+  "total_encontradas": 12
 }
 ```
 
-> El contrato real se define al leer los docs del proveedor; hoy es una plantilla
-> razonable que la UI puede consumir.
+`GET /api/lotes/:id/satelital/preview`:
 
-## Pendientes (requerido para construir)
+```jsonc
+{ "success": true, "tiles": "https://earthengine.googleapis.com/.../{z}/{x}/{y}", "min": 0, "max": 0.3, "name": "Imagen Sentinel 2 SR" }
+```
 
-- [ ] Documentación oficial de la API Terrasacha (endpoints, auth por API key).
-- [ ] Crear la imagen/Área de interés en Terrasacha a partir del GeoJSON,
-      o endpoint que acepte el polígono directo (según el proveedor).
-- [ ] Mapear: lote → parcela → polígono → AOI del proveedor.
-- [ ] Definir env `TERRASACHA_API_KEY` en `apps/api/.env` + `.env.example`.
-- [ ] Determinar si la API soporta fechas históricas (para el historial) o solo
-      "última imagen disponible".
+## Manejo de errores
 
-## Checklist de build (cuando haya endpoints)
+| Situación | HTTP |
+|---|---|
+| Credenciales Terrasacha vacías | `503` (proxy responde claro, no falla) |
+| Lote fuera del alcance del usuario | `403`/`404` |
+| Parcela sin polígono vigente / geometría inválida | `400` con motivo |
+| Satélite o parámetros inválidos (proveedor) | `400` |
+| Credenciales rechazadas por Terrasacha | `502` |
+| Proveedor caído / timeout (30 s) | `502`/`504` |
 
-1. Ruta proxy `GET /api/lotes/:id/satelital` en `lotes.ts`, autenticada, que
-   resuelve el polígono de la parcela y consulta el proveedor.
-2. Cliente Terrasacha aislado en `apps/api/src/lib/` (fetch + key + tipos).
-3. Manejo de errores: proveedor caído / lote sin polígono / parcela sin polígono
-   → respuestas 400/502 claras, sin key expuesta.
-4. Componente `HistorialSatelital.tsx` en `lotes/[id]/` (fetch, línea de tiempo,
-   selector TRUE_COLOR/NDVI, mapa Leaflet de solo lectura con el polígono).
-5. Docs de la integración (este archivo) marcado como VIGENTE.
+## Configuración
+
+Variables en `.env.example` (raíz) y `apps/api/.env`:
+
+```
+TERRASACHA_API_BASE_URL=https://qi3fmd7w53.us-east-1.awsapprunner.com
+TERRASACHA_CLIENT_ID=5hqqat9foeutr909sr19o7jse0
+TERRASACHA_USERNAME=
+TERRASACHA_PASSWORD=
+```
+
+Con `USERNAME`/`PASSWORD` vacíos el proxy responde `503`; el usuario debe
+llenarlas con las credenciales de la cuenta de servicio.
+
+## Pendientes
+
+- [ ] Credenciales de la cuenta de servicio (`TERRASACHA_USERNAME`/`PASSWORD`).
+- [ ] Verificación end-to-end con datos reales una vez configuradas.
+- [ ] Evaluar exponer el catálogo (`GET /api/v1/satellites/catalog`) para poblar
+      bandas por satélite en la UI (hoy hardcodeadas `B4,B3,B2`).

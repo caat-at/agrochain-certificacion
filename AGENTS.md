@@ -5,10 +5,13 @@
 > Actualizar al cerrar cada bloque de trabajo.
 
 **Última actualización:** 2026-10-07
-**Rama:** `main` · **HEAD:** `c67629a` · sincronizado con `origin/main`.
-> El compañero pusheó el 2026-10-06 tres commits (ya integrados con rebase/pull):
-> `3da4e7e` (campo Operador/agricultor en editar predio), `821f14a` (detalle de
-> predio muestra **parcelas** en vez de lotes; nueva página `parcelas/[id]`),
+**Rama:** `main` · **HEAD:** `a011dfd` · 5 commits locales **sin pushear** sobre `c67629a`.
+> Historial satelital Terrasacha (este bloque): `6a8fbfa` (env), `75f34af`
+> (cliente), `8deac2b` (rutas proxy), `a011dfd` (UI + fix Topbar). Y `37e2e70`
+> (contrato Terrasacha, previo). Pushear cuando el usuario lo indique.
+> El compañero pusheó el 2026-10-06 (ya integrados con rebase/pull): `3da4e7e`
+> (campo Operador/agricultor en editar predio), `821f14a` (detalle de predio
+> muestra **parcelas** en vez de lotes; nueva página `parcelas/[id]`),
 > `e51d9eb` (**polígonos georreferenciados** predio/parcela + hub de certificación
 > EUDR/STBN/Bonos de Carbono) y `c67629a` (fix del texto del mapa de parcela).
 **Equipo:** 2 personas trabajando como 1.
@@ -92,16 +95,29 @@ El default de la BD coincide con el rol que crea `packages/database/sql/00_schem
 
 ## 3. Estado: hecho
 
-### 2026-10-07 — Historial satelital de lotes: contrato preparado (sin API aún)
-- **Siguiente módulo acordado:** apartado **Historial** de fotos **satelitales**
-  (true color + NDVI, línea de tiempo) dentro del detalle del **lote**, usando
-  las APIs de **Terrasacha** (API key). No se construyó nada aún: el usuario
-  no tiene los endpoints del proveedor para hoy.
-- **Dejado listo:** `docs/TERRASACHA_CONTRACT.md` — decisiones cerradas,
-  arquitectura del proxy, contrato de respuesta propuesto, checklist de build.
-- Infra geo ya disponible del `e51d9eb`: `parcela_poligonos`/`predio_poligonos`
-  (GeoJSON versionado), rutas `GET/POST/DELETE /api/{parcelas,predios}/:id/poligono`,
-  mapa Leaflet (`PoligonoMapa.tsx`). El polígono de la **parcela** será el AOI.
+### 2026-10-07 — Historial satelital de lotes (Terrasacha) — IMPLEMENTADO
+- **Contrato real verificado** contra los repos del proveedor (`geoMapasDocker`
+  FastAPI, `oraculo_terrasacha` Flutter). Documento **VIGENTE**:
+  `docs/TERRASACHA_CONTRACT.md`.
+- **Auth A (cuenta de servicio Cognito):** `POST /api/v1/login`
+  (`USER_PASSWORD_AUTH`, ClientId `5hqqat9foeutr909sr19o7jse0`) → `IdToken`
+  Bearer. Necesita permiso del tag `analisis`. `X-Internal-Token` existe pero
+  **no está cableado** (no sirve de bypass).
+- **Alcance final:** solo **true color** (`B4,B3,B2`); **NDVI no** lo expone la
+  API de imágenes (solo el pipeline ML/biomasa, fuera de alcance). Solo consulta
+  **en vivo**, sin persistir. AOI = polígono vigente de la **parcela** del lote.
+- **Piezas:** `apps/api/src/services/terrasacha.ts` (login cacheado + búsqueda +
+  preview + conversión GeoJSON→anillo cerrado), rutas proxy
+  `GET /api/lotes/:id/satelital` y `.../satelital/preview` en `lotes.ts`,
+  route handlers proxy en `apps/web/.../api/lotes/[id]/satelital{,/preview}`,
+  UI `apps/web/src/app/(dashboard)/lotes/[id]/HistorialSatelital.tsx` (Leaflet).
+- **Errores:** sin credenciales → 503; parcela sin polígono → 400; proveedor
+  rechaza → 502; timeout 30 s → 504.
+- **Env:** `TERRASACHA_API_BASE_URL`, `TERRASACHA_CLIENT_ID`,
+  `TERRASACHA_USERNAME`, `TERRASACHA_PASSWORD` (vacías → 503). El usuario
+  llenará las credenciales. `git`: `6a8fbfa`, `75f34af`, `8deac2b`, `a011dfd`.
+- **Fix colateral:** `Topbar.tsx` faltaba `TECNICO` en `ROL_LABEL` (error TS
+  preexistente de AGENTS §6) — resuelto en `a011dfd`.
 
 ### 2026-10-06 — Blockchain real en Polygon Amoy + flujo end-to-end
 
@@ -251,11 +267,13 @@ Sigue **sin CI**. Falta el test de paridad de hash servidor-vs-cliente (§5, rie
    Polygon, bcrypt en vez de Cognito.
 3. **Cada dev con su propio `docker-compose`** → parametrizar puertos.
 4. **Tests antes de decidir arquitectura.** No reescribir a ciegas.
-5. **Historial satelital de lotes (Terra Sàtcha, decidido 2026-10-07).** Vive
-   solo en el detalle del lote, muestra true color + NDVI en línea de tiempo,
-   **solo consulta en vivo** (sin persistencia propia), y la API key vive en el
-   backend (`TERRASACHA_API_KEY`), nunca en el browser. AOI = polígono vigente
-   de la parcela del lote. Contrato: `docs/TERRASACHA_CONTRACT.md`.
+5. **Historial satelital de lotes (Terrasacha, decidido 2026-10-07).** Vive
+   solo en el detalle del lote, muestra **true color** (NDVI no expuesto por la
+   API de imágenes — solo pipeline ML/biomasa, fuera de alcance), **solo
+   consulta en vivo** (sin persistencia propia), y las credenciales de cuenta
+   de servicio Cognito viven en el backend (`TERRASACHA_USERNAME`/`PASSWORD`),
+   nunca en el browser. AOI = polígono vigente de la parcela del lote. Contrato:
+   `docs/TERRASACHA_CONTRACT.md`.
 
 ---
 
@@ -283,11 +301,11 @@ Sigue **sin CI**. Falta el test de paridad de hash servidor-vs-cliente (§5, rie
   usa esta tabla. Decidir: borrar (tipo + tabla + migración `14_`) o empezar a
   llenarla desde `writer.ts` (ahí estaría el cimiento de la cola persistente).
 - **Sin CI.**
-- **Web sin typecheck propio + 3 errores TS preexistentes.** `@agrochain/web` no
+- **Web sin typecheck propio + 2 errores TS preexistentes.** `@agrochain/web` no
   tiene script `typecheck` y `tsc --noEmit --types node` reporta:
   `apps/web/src/app/api/informes/lote/[loteId]/route.ts:45,58` (tipos de
-  react-pdf) y `apps/web/src/components/layout/Topbar.tsx:5` (falta `TECNICO` en
-  el map de etiquetas de rol). Los tapa `ignoreBuildErrors: true` (Paso 5).
+  react-pdf). (El error de `Topbar.tsx` se resolvió en `a011dfd`.) Los tapa
+  `ignoreBuildErrors: true` (Paso 5).
 - **`@react-pdf/renderer` NO se puede importar con `PDFDownloadLink` directo**
   en un Server Component: lanza en SSR. Usar wrapper `next/dynamic` + `ssr:false`
   (como `CertificadoPDFClient.tsx`).
