@@ -10,6 +10,7 @@ const ROL_LABEL: Record<RolUsuario, string> = {
   CERTIFICADORA:  "Certificadora",
   INVIMA:         "INVIMA",
   CONSUMIDOR:     "Consumidor",
+  TECNICO:        "Técnico",
 };
 
 export default function Topbar({ nombre, rol }: { nombre: string; rol: RolUsuario }) {

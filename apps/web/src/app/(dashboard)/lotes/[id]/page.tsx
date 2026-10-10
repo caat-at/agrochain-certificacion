@@ -11,6 +11,7 @@ import { PlantasGrid, type PlantaLote } from "./PlantasGrid";
 import { NuevaPlantaForm } from "./NuevaPlantaForm";
 import { VincularPlantaBtn } from "./VincularPlantaBtn";
 import { NuevoEventoForm } from "./NuevoEventoForm";
+import { HistorialSatelital } from "./HistorialSatelital";
 import { EditarLoteBtn } from "../EditarLoteBtn";
 import { getSession } from "@/lib/auth";
 
@@ -321,6 +322,12 @@ export default async function LoteDetallePage({
               </div>
             )}
           </div>
+        </div>
+
+        {/* Historial satelital — escenas en vivo sobre la parcela del lote */}
+        <div className="card">
+          <h2 className="font-semibold text-gray-800 mb-4">Historial satelital</h2>
+          <HistorialSatelital loteId={lote.id} parcelaId={lote.parcelaId} />
         </div>
 
         {/* Columna derecha */}
