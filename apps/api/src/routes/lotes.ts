@@ -17,8 +17,17 @@ import {
   vincularPlantasALote,
   getParcelaById,
   getPredioById,
+  getPoligonoVigentePorParcela,
 } from "@agrochain/database";
 import { registrarLoteOnChain, isConfigured } from "../services/blockchain.js";
+import {
+  buscarEscenas,
+  previsualizarEscena,
+  coordenadasParcelaDesdeGeoJson,
+  isTerrasachaConfigured,
+  TerrasachaNoConfiguradoError,
+  TerrasachaApiError,
+} from "../services/terrasacha.js";
 import { alcanceDeLotes } from "../middleware/alcance.js";
 import type { JwtPayload } from "../middleware/auth.js";
 import type { Lote } from "@agrochain/database";
@@ -35,6 +44,43 @@ async function loteDeAlcance(
   const lote = await getLoteById(id, alcance.agricultorId);
   if (!lote) return { ok: false, status: 404 };
   return { ok: true, lote };
+}
+
+// Resuelve el AOI (área de interés) para el historial satelital: el anillo de
+// coordenadas del polígono VIGENTE de la parcela del lote. Devuelve un motivo
+// legible para que la ruta lo convierta en el status HTTP correspondiente.
+async function poligonoParcelaDeLote(
+  parcelaId: string
+): Promise<{ ok: true; coordenadas: number[][] } | { ok: false; motivo: string; status: 400 | 404 }> {
+  const poligono = await getPoligonoVigentePorParcela(parcelaId);
+  if (!poligono) {
+    return { ok: false, motivo: "La parcela del lote no tiene polígono vigente registrado (dibujelo en el mapa de la parcela)", status: 400 };
+  }
+
+  const coordenadas = coordenadasParcelaDesdeGeoJson(poligono.geojson);
+  if (!coordenadas) {
+    return { ok: false, motivo: "El polígono de la parcela no tiene anillo de coordenadas utilizable", status: 400 };
+  }
+
+  return { ok: true, coordenadas };
+}
+
+// Errores de la API Terrasacha → HTTP con significado (503 config, 504 timeout,
+// 502 aguas arriba, 400 satélite inválido) sin filtrar el cuerpo.
+function responderErrorTerrasacha(reply: any, err: unknown) {
+  if (err instanceof TerrasachaNoConfiguradoError) {
+    return reply.status(503).send({ message: err.message });
+  }
+  if (err instanceof TerrasachaApiError) {
+    if (err.status === 400) {
+      return reply.status(400).send({ message: "Parámetros inválidos para Terrasacha", detalle: err.body });
+    }
+    if (err.status === 401 || err.status === 403) {
+      return reply.status(502).send({ message: "Terrasacha rechazó las credenciales del servidor" });
+    }
+    return reply.status(502).send({ message: `Terrasacha respondió ${err.status}` });
+  }
+  return reply.status(504).send({ message: "Terrasacha no respondió a tiempo" });
 }
 
 const CrearLoteSchema = z.object({
@@ -59,6 +105,19 @@ const EditarLoteSchema = z.object({
   distanciaSiembraM: z.number().positive().nullable().optional(),
   densidadPlantas: z.number().int().positive().nullable().optional(),
   cultivoAnterior: z.string().max(150).nullable().optional(),
+});
+
+const SatelitalQuerySchema = z.object({
+  satellite: z.enum(["S2", "LC08", "LC09", "S1", "ALOS", "MOD13A1", "MOD11A1", "MOD14A1"]).optional(),
+  desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  nubosidad: z.coerce.number().int().min(0).max(100).optional(),
+});
+
+const PreviewQuerySchema = z.object({
+  imageId: z.string().min(1),
+  satellite: z.string().min(1),
+  bandas: z.string().optional(),
 });
 
 export async function lotesRoutes(app: FastifyInstance) {
@@ -386,6 +445,109 @@ export async function lotesRoutes(app: FastifyInstance) {
         return { success: true, data: existente };
       }
       return { success: true, data: actualizado };
+    }
+  );
+
+  // GET /api/lotes/:id/satelital — escenas satelitales disponibles sobre la
+  // parcela del lote (historial, consulta SOLO en vivo contra Terrasacha, sin
+  // persistencia propia). AOI = polígono vigente de la parcela.
+  // Query: satellite (default S2), desde/hasta (YYYY-MM-DD, default últimos 12
+  // meses), nubosidad (0-100, default 20).
+  app.get<{ Params: { id: string }; Querystring: unknown }>(
+    "/:id/satelital",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
+      if (!isTerrasachaConfigured()) {
+        return reply.status(503).send({ message: "Integración Terrasacha no configurada en el servidor" });
+      }
+
+      const payload = (request as any).user as JwtPayload;
+      const visible = await loteDeAlcance(request.params.id, payload);
+      if (!visible.ok) {
+        return reply.status(visible.status).send({ message: "Lote no encontrado" });
+      }
+
+      const parsed = SatelitalQuerySchema.safeParse(request.query);
+      if (!parsed.success) {
+        return reply.status(400).send({ message: "Query inválida", errors: parsed.error.flatten().fieldErrors });
+      }
+      const q = parsed.data;
+
+      const poligono = await poligonoParcelaDeLote(visible.lote.parcelaId);
+      if (!poligono.ok) {
+        return reply.status(poligono.status).send({ message: poligono.motivo });
+      }
+
+      const fin = q.hasta ? new Date(`${q.hasta}T23:59:59`) : new Date();
+      const inicio = q.desde
+        ? new Date(`${q.desde}T00:00:00`)
+        : new Date(fin.getFullYear() - 1, fin.getMonth(), fin.getDate());
+
+      const desde = inicio.toISOString().slice(0, 10);
+      const hasta = fin.toISOString().slice(0, 10);
+
+      try {
+        const escenas = await buscarEscenas({
+          satellite: q.satellite ?? "S2",
+          coordenadas: poligono.coordenadas,
+          fechaDesde: desde,
+          fechaHasta: hasta,
+          nubosidad: q.nubosidad ?? 20,
+        });
+        return {
+          success: true,
+          satelite: q.satellite ?? "S2",
+          desde,
+          hasta,
+          ...escenas,
+        };
+      } catch (err) {
+        return responderErrorTerrasacha(reply, err);
+      }
+    }
+  );
+
+  // GET /api/lotes/:id/satelital/preview — plantilla XYZ de una escena para el
+  // mapa del historial satelital. Query: imageId, satellite, bandas (opcional,
+  // CSV separado por coma; default true color B4,B3,B2).
+  app.get<{ Params: { id: string }; Querystring: unknown }>(
+    "/:id/satelital/preview",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
+      if (!isTerrasachaConfigured()) {
+        return reply.status(503).send({ message: "Integración Terrasacha no configurada en el servidor" });
+      }
+
+      const payload = (request as any).user as JwtPayload;
+      const visible = await loteDeAlcance(request.params.id, payload);
+      if (!visible.ok) {
+        return reply.status(visible.status).send({ message: "Lote no encontrado" });
+      }
+
+      const parsed = PreviewQuerySchema.safeParse(request.query);
+      if (!parsed.success) {
+        return reply.status(400).send({ message: "Query inválida", errors: parsed.error.flatten().fieldErrors });
+      }
+      const q = parsed.data;
+
+      const poligono = await poligonoParcelaDeLote(visible.lote.parcelaId);
+      if (!poligono.ok) {
+        return reply.status(poligono.status).send({ message: poligono.motivo });
+      }
+
+      const bandas = q.bandas ? q.bandas.split(",").map((b) => b.trim()).filter(Boolean) : ["B4", "B3", "B2"];
+
+      try {
+        const preview = await previsualizarEscena({
+          imageId: q.imageId,
+          satellite: q.satellite,
+          bandas,
+          coordenadas: poligono.coordenadas,
+        });
+        return { success: true, ...preview };
+      } catch (err) {
+        return responderErrorTerrasacha(reply, err);
+      }
     }
   );
 }
