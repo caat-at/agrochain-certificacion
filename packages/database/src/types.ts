@@ -167,6 +167,8 @@ export interface Predio {
   tieneAguaPotable: boolean;
   tieneSSSBasicas: boolean;
   tieneZonaAcopio: boolean;
+  territorioIndigena: boolean;
+  territorioIndigenaDetalle: string | null;
   activo: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -504,6 +506,62 @@ export interface EudrEvidenciaSatelital {
   fuenteDeclarada: string | null;
   evidenciaBinariaId: string;
   cargadoPor: string;
+  createdAt: Date;
+}
+
+// ── Evaluacion de riesgo EUDR (Art. 9-11, Reglamento UE 2023/1115) ──────────
+
+export type NivelRiesgoPais = "BAJO" | "ESTANDAR" | "ALTO";
+export type NivelRiesgo = "NULO" | "BAJO" | "MEDIO" | "ALTO";
+
+export interface EudrPaisRiesgo {
+  id: string;
+  codigoPais: string;
+  nombrePais: string;
+  nivelRiesgo: NivelRiesgoPais;
+  fuente: string;
+  vigenteDesde: string;
+  createdAt: Date;
+}
+
+export interface EudrEvaluacionRiesgoPredio {
+  id: string;
+  predioId: string;
+  paisCodigo: string;
+  historialIncumplimiento: boolean;
+  historialIncumplimientoDetalle: string | null;
+  tenenciaLegalVerificada: boolean;
+  tenenciaLegalObservaciones: string | null;
+  nivelRiesgoGlobal: NivelRiesgo;
+  vigente: boolean;
+  version: number;
+  evaluadoPor: string;
+  createdAt: Date;
+}
+
+export interface EudrEvaluacionRiesgoParcela {
+  id: string;
+  parcelaId: string;
+  fiabilidadPoligono: "ALTA" | "MEDIA" | "BAJA";
+  complejidadCadena: "BAJA" | "MEDIA" | "ALTA";
+  complejidadCadenaDetalle: string | null;
+  riesgoMezclaOrigen: NivelRiesgo;
+  informacionNoConformidad: string | null;
+  nivelRiesgoGlobal: NivelRiesgo;
+  vigente: boolean;
+  version: number;
+  evaluadoPor: string;
+  createdAt: Date;
+}
+
+export interface EudrMedidaMitigacion {
+  id: string;
+  evaluacionPredioId: string | null;
+  evaluacionParcelaId: string | null;
+  descripcion: string;
+  responsable: string | null;
+  fechaImplementacion: string | null;
+  registradoPor: string;
   createdAt: Date;
 }
 

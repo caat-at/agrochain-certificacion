@@ -6,6 +6,8 @@
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { randomUUID, createHash } from "crypto";
+import { PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import {
   listPredios,
   getPredioConLotes,
@@ -20,7 +22,19 @@ import {
   listPoligonosPorPredio,
   crearPoligonoVigentePredio,
   desactivarPoligonoVigentePredio,
+  createEvidenciaBinaria,
+  listEvidenciaBinaria,
+  deleteEvidenciaBinaria,
 } from "@agrochain/database";
+import { s3, S3_BUCKET, signEvidenciaUrl } from "../services/s3.js";
+
+const MIMETYPES_PERMITIDOS = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
+const MAX_SIZE_BYTES = 10 * 1024 * 1024;
+
+function extOf(name: string): string {
+  const i = name.lastIndexOf(".");
+  return i >= 0 ? name.slice(i).toLowerCase() : "";
+}
 
 const PoligonoSchema = z.object({
   geojson: z.record(z.unknown()),
@@ -276,6 +290,86 @@ export async function prediosRoutes(app: FastifyInstance) {
       }
 
       return { success: true };
+    }
+  );
+
+  // ── Documento de tenencia legal (Art. 9(1)(h) EUDR, dato general del predio) ──
+  // Un solo documento vigente por predio (matricula inmobiliaria, certificado
+  // de uso de suelo, contrato de uso del area) — al subir uno nuevo se
+  // reemplaza el anterior (no se versiona, a diferencia del poligono/declaracion).
+
+  // GET /api/predios/:id/tenencia-legal-documento
+  app.get<{ Params: { id: string } }>(
+    "/:id/tenencia-legal-documento",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
+      const predio = await getPredioById(request.params.id);
+      if (!predio) return reply.status(404).send({ message: "Predio no encontrado" });
+
+      const documentos = await listEvidenciaBinaria("predio_tenencia_legal", request.params.id);
+      const vigente = documentos[documentos.length - 1] ?? null;
+      if (!vigente) return { documento: null };
+      const url = await signEvidenciaUrl(vigente.storageKey);
+      return { documento: { ...vigente, url } };
+    }
+  );
+
+  // POST /api/predios/:id/tenencia-legal-documento
+  app.post<{ Params: { id: string } }>(
+    "/:id/tenencia-legal-documento",
+    { preHandler: [(app as any).authenticate] },
+    async (request, reply) => {
+      const payload = (request as any).user as { sub: string; rol: string };
+      if (!["ADMIN", "AGRICULTOR"].includes(payload.rol)) {
+        return reply.status(403).send({ message: "Sin permisos para adjuntar el documento de tenencia legal" });
+      }
+
+      const predio = await getPredioById(request.params.id);
+      if (!predio) return reply.status(404).send({ message: "Predio no encontrado" });
+      if (payload.rol === "AGRICULTOR" && predio.agricultorId !== payload.sub) {
+        return reply.status(403).send({ message: "Un agricultor solo puede adjuntar documentos de predios propios" });
+      }
+      if (!S3_BUCKET) {
+        return reply.status(503).send({ message: "S3 no está configurado en el servidor (falta S3_BUCKET)" });
+      }
+
+      const file = await request.file({ limits: { fileSize: MAX_SIZE_BYTES } });
+      if (!file) return reply.status(400).send({ message: "No se recibió ningún archivo" });
+      if (!MIMETYPES_PERMITIDOS.has(file.mimetype)) {
+        return reply.status(400).send({ message: `Tipo de archivo no permitido: ${file.mimetype}` });
+      }
+
+      const buffer = await file.toBuffer();
+      if (buffer.byteLength > MAX_SIZE_BYTES) {
+        return reply.status(413).send({ message: "Archivo demasiado grande (máximo 10MB)" });
+      }
+
+      // Reemplazo: borra el documento anterior (S3 + registro) antes de subir el nuevo.
+      const anteriores = await listEvidenciaBinaria("predio_tenencia_legal", request.params.id);
+      for (const anterior of anteriores) {
+        await s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: anterior.storageKey })).catch(() => {});
+        await deleteEvidenciaBinaria(anterior.id);
+      }
+
+      const sha256 = createHash("sha256").update(buffer).digest("hex");
+      const storageKey = `predio_tenencia_legal/${request.params.id}/${randomUUID()}${extOf(file.filename)}`;
+
+      await s3.send(
+        new PutObjectCommand({ Bucket: S3_BUCKET, Key: storageKey, Body: buffer, ContentType: file.mimetype })
+      );
+
+      const documento = await createEvidenciaBinaria({
+        tipo: "predio_tenencia_legal",
+        entidadId: request.params.id,
+        storageKey,
+        originalName: file.filename,
+        mimetype: file.mimetype,
+        sizeBytes: buffer.byteLength,
+        sha256,
+        subidoPor: payload.sub,
+      });
+
+      return reply.status(201).send({ success: true, documento });
     }
   );
 }

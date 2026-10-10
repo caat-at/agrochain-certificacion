@@ -34,6 +34,8 @@ interface Props {
     altitudMsnm: number | null;
     areaTotalHa: number;
     areaProductivaHa: number | null;
+    territorioIndigena?: boolean;
+    territorioIndigenaDetalle?: string | null;
     activo: boolean;
   };
 }
@@ -52,6 +54,7 @@ export function EditarPredioBtn({ predio }: Props) {
   const [propietarioId, setPropietarioId]         = useState(predio.propietarioId ?? "");
   const [agricultorId, setAgricultorId]           = useState(predio.agricultorId ?? "");
   const [codigoIca, setCodigoIca]                 = useState(predio.codigoIca ?? "");
+  const [matriculaInmobiliaria, setMatriculaInmobiliaria] = useState(predio.matriculaInmobiliaria ?? "");
   const [departamentoCod, setDepartamentoCod]     = useState(predio.departamentoCod ?? "");
   const [municipioCod, setMunicipioCod]           = useState(predio.municipioCod ?? "");
   const [vereda, setVereda]                       = useState(predio.vereda ?? "");
@@ -61,7 +64,14 @@ export function EditarPredioBtn({ predio }: Props) {
   const [altitudMsnm, setAltitudMsnm]             = useState(predio.altitudMsnm != null ? String(predio.altitudMsnm) : "");
   const [areaTotalHa, setAreaTotalHa]             = useState(String(predio.areaTotalHa));
   const [areaProductivaHa, setAreaProductivaHa]   = useState(predio.areaProductivaHa != null ? String(predio.areaProductivaHa) : "");
+  const [territorioIndigena, setTerritorioIndigena] = useState(predio.territorioIndigena ?? false);
+  const [territorioIndigenaDetalle, setTerritorioIndigenaDetalle] = useState(predio.territorioIndigenaDetalle ?? "");
   const [activo, setActivo]                       = useState(predio.activo);
+
+  const [documento, setDocumento] = useState<{ originalName: string; url: string } | null>(null);
+  const [documentoFile, setDocumentoFile] = useState<File | null>(null);
+  const [subiendoDocumento, setSubiendoDocumento] = useState(false);
+  const [errorDocumento, setErrorDocumento] = useState<string | null>(null);
 
   useEffect(() => {
     if (!abierto || departamentos.length > 0) return;
@@ -89,6 +99,39 @@ export function EditarPredioBtn({ predio }: Props) {
     fetchMunicipios(departamentoCod).then(setMunicipios);
   }, [departamentoCod]);
 
+  useEffect(() => {
+    if (!abierto) return;
+    fetch(`/api/predios/${predio.id}/tenencia-legal-documento`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => setDocumento(data.documento ?? null))
+      .catch(() => setDocumento(null));
+  }, [abierto, predio.id]);
+
+  async function handleSubirDocumento() {
+    if (!documentoFile) return;
+    setErrorDocumento(null);
+    setSubiendoDocumento(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", documentoFile);
+      const res = await fetch(`/api/predios/${predio.id}/tenencia-legal-documento`, {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message ?? `HTTP ${res.status}`);
+      setDocumentoFile(null);
+      // La URL firmada no viene en la respuesta del POST, se recarga del GET
+      const resDoc = await fetch(`/api/predios/${predio.id}/tenencia-legal-documento`, { cache: "no-store" });
+      const dataDoc = await resDoc.json();
+      setDocumento(dataDoc.documento ?? null);
+    } catch (e) {
+      setErrorDocumento(String(e));
+    } finally {
+      setSubiendoDocumento(false);
+    }
+  }
+
   function handleClose() {
     setAbierto(false);
     setError(null);
@@ -96,6 +139,7 @@ export function EditarPredioBtn({ predio }: Props) {
     setPropietarioId(predio.propietarioId ?? "");
     setAgricultorId(predio.agricultorId ?? "");
     setCodigoIca(predio.codigoIca ?? "");
+    setMatriculaInmobiliaria(predio.matriculaInmobiliaria ?? "");
     setDepartamentoCod(predio.departamentoCod ?? "");
     setMunicipioCod(predio.municipioCod ?? "");
     setVereda(predio.vereda ?? "");
@@ -105,6 +149,8 @@ export function EditarPredioBtn({ predio }: Props) {
     setAltitudMsnm(predio.altitudMsnm != null ? String(predio.altitudMsnm) : "");
     setAreaTotalHa(String(predio.areaTotalHa));
     setAreaProductivaHa(predio.areaProductivaHa != null ? String(predio.areaProductivaHa) : "");
+    setTerritorioIndigena(predio.territorioIndigena ?? false);
+    setTerritorioIndigenaDetalle(predio.territorioIndigenaDetalle ?? "");
     setActivo(predio.activo);
   }
 
@@ -130,6 +176,7 @@ export function EditarPredioBtn({ predio }: Props) {
           propietarioId,
           agricultorId: agricultorId || null,
           codigoIca: codigoIca.trim() || null,
+          matriculaInmobiliaria: matriculaInmobiliaria.trim() || null,
           departamentoCod: departamentoCod || undefined,
           municipioCod: municipioCod || undefined,
           vereda: vereda.trim() || null,
@@ -139,6 +186,8 @@ export function EditarPredioBtn({ predio }: Props) {
           altitudMsnm: altitudMsnm ? Number(altitudMsnm) : null,
           areaTotalHa: area,
           areaProductivaHa: areaProductivaHa ? Number(areaProductivaHa) : null,
+          territorioIndigena,
+          territorioIndigenaDetalle: territorioIndigena ? (territorioIndigenaDetalle.trim() || null) : null,
           activo,
         }),
       });
@@ -217,6 +266,51 @@ export function EditarPredioBtn({ predio }: Props) {
                 />
               </div>
 
+              <div>
+                <label className="label">Matrícula inmobiliaria (opcional)</label>
+                <input
+                  className="input font-mono"
+                  value={matriculaInmobiliaria}
+                  onChange={(e) => setMatriculaInmobiliaria(e.target.value)}
+                  placeholder="Ej: 050-123456 — folio de matrícula (Registro de Instrumentos Públicos)"
+                />
+              </div>
+
+              <div>
+                <label className="label">Documento de tenencia legal (opcional)</label>
+                <p className="text-xs text-gray-400 mt-1 mb-2">
+                  Matrícula, certificado de uso de suelo o contrato de uso del área — se usa como referencia en la evaluación de riesgo EUDR.
+                </p>
+                {documento && (
+                  <a
+                    href={documento.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-between text-xs bg-gray-50 rounded-lg px-3 py-2 hover:bg-gray-100 mb-2"
+                  >
+                    <span className="text-gray-600">{documento.originalName}</span>
+                    <span className="text-blue-500">Ver →</span>
+                  </a>
+                )}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,application/pdf"
+                    onChange={(e) => setDocumentoFile(e.target.files?.[0] ?? null)}
+                    className="text-xs flex-1"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSubirDocumento}
+                    disabled={subiendoDocumento || !documentoFile}
+                    className="btn-secondary text-xs px-3 py-1.5 disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {subiendoDocumento ? "Subiendo…" : documento ? "Reemplazar" : "Subir"}
+                  </button>
+                </div>
+                {errorDocumento && <p className="text-xs text-red-500 mt-1">{errorDocumento}</p>}
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="label">Departamento</label>
@@ -281,6 +375,29 @@ export function EditarPredioBtn({ predio }: Props) {
                   <label className="label">Área productiva (ha, opcional)</label>
                   <input className="input" type="number" step="any" value={areaProductivaHa} onChange={(e) => setAreaProductivaHa(e.target.value)} />
                 </div>
+              </div>
+
+              <div>
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={territorioIndigena}
+                    onChange={(e) => setTerritorioIndigena(e.target.checked)}
+                  />
+                  El predio colinda o se superpone con territorio/resguardo indígena
+                </label>
+                <p className="text-xs text-gray-400 mt-1">
+                  Dato general del predio — se usa como referencia en la evaluación de riesgo EUDR (Art. 10(2)(d)(e)).
+                </p>
+                {territorioIndigena && (
+                  <textarea
+                    className="input mt-2"
+                    rows={2}
+                    placeholder="Detalle de la consulta/cooperación con el pueblo indígena (opcional)"
+                    value={territorioIndigenaDetalle}
+                    onChange={(e) => setTerritorioIndigenaDetalle(e.target.value)}
+                  />
+                )}
               </div>
 
               <div>

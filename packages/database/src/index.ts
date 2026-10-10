@@ -5,6 +5,7 @@ export { default as pool } from "./db/client.js";
 export * from "./db/queries.js";
 export * from "./db/queries-campanas.js";
 export * from "./db/queries-eudr.js";
+export * from "./db/queries-eudr-riesgo.js";
 export * from "./db/queries-stbn.js";
 export * from "./db/queries-poligonos.js";
 
@@ -58,6 +59,12 @@ export type {
   ParcelaPoligono,
   EudrDeclaracion,
   EudrEvidenciaSatelital,
+  EudrPaisRiesgo,
+  EudrEvaluacionRiesgoPredio,
+  EudrEvaluacionRiesgoParcela,
+  EudrMedidaMitigacion,
+  NivelRiesgo,
+  NivelRiesgoPais,
   EvidenciaBinaria,
   StbnSubcriterio,
   StbnEvidenciaPilar,

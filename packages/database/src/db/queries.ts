@@ -472,6 +472,8 @@ const PREDIO_COLUMNS = `
   predios.tiene_agua_potable         AS "tieneAguaPotable",
   predios.tiene_sss_basicas          AS "tieneSSSBasicas",
   predios.tiene_zona_acopio          AS "tieneZonaAcopio",
+  predios.territorio_indigena        AS "territorioIndigena",
+  predios.territorio_indigena_detalle AS "territorioIndigenaDetalle",
   predios.activo,
   predios.created_at                 AS "createdAt",
   predios.updated_at                 AS "updatedAt"
@@ -549,6 +551,8 @@ const PREDIO_COLUMNS_RETURNING = `
   tiene_agua_potable         AS "tieneAguaPotable",
   tiene_sss_basicas          AS "tieneSSSBasicas",
   tiene_zona_acopio          AS "tieneZonaAcopio",
+  territorio_indigena        AS "territorioIndigena",
+  territorio_indigena_detalle AS "territorioIndigenaDetalle",
   activo,
   created_at                 AS "createdAt",
   updated_at                 AS "updatedAt"
@@ -662,6 +666,8 @@ export interface UpdatePredioFields {
   tieneAguaPotable?: boolean;
   tieneSSSBasicas?: boolean;
   tieneZonaAcopio?: boolean;
+  territorioIndigena?: boolean;
+  territorioIndigenaDetalle?: string | null;
   activo?: boolean;
 }
 
@@ -703,6 +709,8 @@ export async function updatePredio(
   if (fields.tieneAguaPotable !== undefined) { params.push(fields.tieneAguaPotable); sets.push(`tiene_agua_potable = $${params.length}`); }
   if (fields.tieneSSSBasicas !== undefined) { params.push(fields.tieneSSSBasicas); sets.push(`tiene_sss_basicas = $${params.length}`); }
   if (fields.tieneZonaAcopio !== undefined) { params.push(fields.tieneZonaAcopio); sets.push(`tiene_zona_acopio = $${params.length}`); }
+  if (fields.territorioIndigena !== undefined) { params.push(fields.territorioIndigena); sets.push(`territorio_indigena = $${params.length}`); }
+  if (fields.territorioIndigenaDetalle !== undefined) { params.push(fields.territorioIndigenaDetalle); sets.push(`territorio_indigena_detalle = $${params.length}`); }
   if (fields.activo !== undefined) { params.push(fields.activo); sets.push(`activo = $${params.length}`); }
 
   if (sets.length === 0) return "no-changes";

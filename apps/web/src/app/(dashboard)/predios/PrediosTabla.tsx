@@ -24,6 +24,8 @@ interface PredioItem {
   altitudMsnm: number | null;
   areaTotalHa: number;
   areaProductivaHa: number | null;
+  territorioIndigena: boolean;
+  territorioIndigenaDetalle: string | null;
   activo: boolean;
   totalLotes: number;
   agricultor: { nombres: string; apellidos: string } | null;
