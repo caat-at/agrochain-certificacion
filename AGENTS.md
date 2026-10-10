@@ -5,10 +5,12 @@
 > Actualizar al cerrar cada bloque de trabajo.
 
 **Última actualización:** 2026-10-07
-**Rama:** `main` · **HEAD:** `a011dfd` · 5 commits locales **sin pushear** sobre `c67629a`.
+**Rama:** `main` · commits de trabajo locales **sin pushear** sobre `c67629a`
+(este ajuste de cabecera va aparte, al final).
 > Historial satelital Terrasacha (este bloque): `6a8fbfa` (env), `75f34af`
-> (cliente), `8deac2b` (rutas proxy), `a011dfd` (UI + fix Topbar). Y `37e2e70`
-> (contrato Terrasacha, previo). Pushear cuando el usuario lo indique.
+> (cliente), `8deac2b` (rutas proxy), `a011dfd` (UI + fix Topbar), `6f076ec`
+> (contrato VIGENTE). Y `37e2e70` (contrato borrador, previo). Pushear cuando el
+> usuario lo indique.
 > El compañero pusheó el 2026-10-06 (ya integrados con rebase/pull): `3da4e7e`
 > (campo Operador/agricultor en editar predio), `821f14a` (detalle de predio
 > muestra **parcelas** en vez de lotes; nueva página `parcelas/[id]`),
