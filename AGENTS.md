@@ -7,8 +7,8 @@
 **Última actualización:** 2026-10-07
 **Rama:** `main` · commits de trabajo locales **sin pushear** sobre `c67629a`
 (este ajuste de cabecera va aparte, al final).
-> Historial satelital Terrasacha (este bloque): `6a8fbfa` (env), `75f34af`
-> (cliente), `8deac2b` (rutas proxy), `a011dfd` (UI + fix Topbar), `6f076ec`
+> Historial satelital Terrasacha (este bloque): `1e6fd23` (env), `afa37ae`
+> (cliente), `a869a00` (rutas proxy), `a407440` (UI + fix Topbar), `f4c45e6`
 > (contrato VIGENTE). Y `37e2e70` (contrato borrador, previo). Pushear cuando el
 > usuario lo indique.
 > El compañero pusheó el 2026-10-06 (ya integrados con rebase/pull): `3da4e7e`
